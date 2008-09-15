@@ -70,6 +70,9 @@
 typedef limb_t *limbs;
 typedef const limb_t *const_limbs;
 
+/* increment n-limb number a if carry is true, else just copy it; gives n-limb result
+   and returns a carry */
+
 static bool
 limbs_incc(limbs res, const_limbs a, Py_ssize_t n, bool carry)
 {
@@ -78,6 +81,9 @@ limbs_incc(limbs res, const_limbs a, Py_ssize_t n, bool carry)
 		carry = limb_incc(res+i, a[i], carry);
 	return carry;
 }
+
+/* decrement n-limb number a if carry is true, else just copy it; gives n-limb result
+   and returns a carry */
 
 static bool
 limbs_decc(limbs res, const_limbs a, Py_ssize_t n, bool carry)
@@ -101,7 +107,8 @@ limbs_add(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
 	return carry;
 }
 
-/* a-b, a and b n-limb numbers.  n-limb result in res; return carry. */
+/* subtract n-limb numbers a and b, giving n-limb difference res and a
+   carry */
 
 static bool
 limbs_sub(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
@@ -114,8 +121,8 @@ limbs_sub(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
 	return carry;
 }
 
-/* multiply m-limb number a by single limb x, getting m-digit result res and
-   an extra high limb. */
+/* multiply m-limb number a by single limb x, getting m-limb result res and
+   an extra high limb (returned separately). */
 
 static limb_t
 limbs_mul1(limbs res, const_limbs a, Py_ssize_t n, limb_t x)
@@ -128,8 +135,7 @@ limbs_mul1(limbs res, const_limbs a, Py_ssize_t n, limb_t x)
 	return high;
 }
 
-/* multiply m-digit a by n-digit b, getting m+n-digit result res.
-   res should not overlap either of the inputs. */
+/* multiply m-limb a by n-limb b, getting m+n-limb result res */
 
 static void
 limbs_mul(limbs res, const_limbs a, Py_ssize_t m, const_limbs b, Py_ssize_t n)
@@ -147,8 +153,8 @@ limbs_mul(limbs res, const_limbs a, Py_ssize_t m, const_limbs b, Py_ssize_t n)
 	}
 }
 
-/* divide m-limb number a by single limb x, giving m-digit quotient res and
-   returning the remainder */
+/* divide m-limb number a by single limb x, giving m-limb quotient res
+   and returning the (single limb) remainder */
 
 static limb_t
 limbs_div1(limbs res, const_limbs a, Py_ssize_t m, limb_t x)
@@ -161,9 +167,9 @@ limbs_div1(limbs res, const_limbs a, Py_ssize_t m, limb_t x)
 	return high;
 }
 
-/* divide m-limb a by n-limb b, giving an (m-n+1)-limb quotient and n-limb
-   remainder.  Assumes that the top digit of b is nonzero.  w provides m+n+1
-   digits of workspace. */
+/* divide m-limb a by n-limb b, giving an (m-n+1)-limb quotient and
+   n-limb remainder.  Assumes that the top limb of b is nonzero and
+   that m >= n.  w provides m+n+1 limbs of workspace. */
 
 static void
 limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
@@ -176,7 +182,7 @@ limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
 
 	/* top limb of b should be nonzero; a should contain at least as many
 	   limbs as b */
-	assert(m >= n && n > 0 && !limb_eq(b[n-1], LIMB_ZERO));
+	assert(m >= n && !limb_eq(b[n-1], LIMB_ZERO));
 
 	/* compute scale factor for normalization: floor(LIMB_BASE /
 	   (b_top+1)) */
@@ -265,31 +271,10 @@ limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	res[i] = rem;
 }
 
-/* res = a[m:n], 0 <= m < n <= LIMB_DIGITS*a_size. res should have length
-   ceiling((n-m)/LIMB_DIGITS). */
-
-/* number of limbs of a needed is (n-1)/LIMB_DIGITS - m/LIMB_DIGITS + 1
-   number of limbs in result is (n-1-m)/LIMB_DIGITS + 1.  These two
-   numbers are the same iff (n-1) % LIMB_DIGITS >= m % LIMB_DIGITS; otherwise
-   we need to use an extra limb of a.
-
-   Ex: a[0:9] needs only one limb of a
-       a[1:10] needs two limbs of a, one limb result
-       a[2:11] needs two limbs of a, one limb result
-
-       a[0:8] needs only one limb of a
-       a[1:9] needs only one limb of a
-       a[2:10] needs two limbs of a
-
-       a[0:10] needs two limbs
-       a[1:11] needs two limbs
-
-       a[0:2] one limb
-       a[7:9] one limb
-       a[8:10] two
-       a[9:11] one
-
- */
+/* get slice a[m:n] of (the decimal digits of) an integer a, from
+   digit m up to (but not including) digit n, giving a result res with
+   1+(n-m-1)/LIMB_DIGITS limbs.  Assumes that 0 <= m < n and that a
+   has at least 1+(n-1)/LIMB_DIGITS limbs. */
 
 static void
 limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
@@ -297,17 +282,6 @@ limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	Py_ssize_t m_limbs, m_digits, res_limbs, res_digits, i;
 	limb_t out, limb_bot, limb_top;
 	bool carry;
-
-	/* number of limbs of result is (n-1-m)/LIMB_DIGITS + 1 */
-	/* want to know whether (n-1-m) % LIMB_DIGITS > LIMB_DIGITS - m % LIMB_DIGITS */
-
-	/* if a % LIMB_DIGITS < b % LIMB_DIGITS then a-b produces a carry; and
-	   (a-b) % LIMB_DIGITS is at least LIMB_DIGITS - b % LIMB_DIGITS.  if
-	   a % LIMB_DIGITS >= b % LIMB_DIGITS then a-b doesn't carry, and
-	   (a-b) % LIMB_DIGITS is strictly less than LIMB_DIGITS - b %
-	   LIMB_DIGITS.
-	*/
-
 	m_limbs = m / LIMB_DIGITS;
 	m_digits = m % LIMB_DIGITS;
 	res_limbs = (n-1-m) / LIMB_DIGITS;
