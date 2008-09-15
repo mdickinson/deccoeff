@@ -191,21 +191,6 @@ limbs_div1(limbs res, const_limbs a, Py_ssize_t m, limb_t x)
 	return high;
 }
 
-/* print limbs to stdout, most significant first; used for debugging only */
-
-static void
-limbs_print(const_limbs a, Py_ssize_t n)
-{
-	Py_ssize_t i;
-	printf("[");
-	for (i = n-1; i >= 0; i--) {
-		printf("%0*d", LIMB_DIGITS, a[i]);
-		if (i != 0)
-			printf(" ");
-	}
-	printf("]");
-}
-
 /* divide m-limb a by n-limb b, giving an (m-n+1)-limb quotient and n-limb
    remainder.  Assumes that the top digit of b is nonzero.  w provides m+n+1
    digits of workspace. */
