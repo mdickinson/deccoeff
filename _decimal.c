@@ -279,22 +279,22 @@ limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 static void
 limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 {
-	Py_ssize_t m_limbs, m_digits, res_limbs, res_digits, i;
+	Py_ssize_t mlimbs, mdigits, res_limbs, res_digits, i;
 	limb_t out, limb_bot, limb_top;
 	bool carry;
-	m_limbs = m / LIMB_DIGITS;
-	m_digits = m % LIMB_DIGITS;
+	mlimbs = m / LIMB_DIGITS;
+	mdigits = m % LIMB_DIGITS;
 	res_limbs = (n-1-m) / LIMB_DIGITS;
 	res_digits = (n-1-m) % LIMB_DIGITS + 1;
-	out = limb_sar(a[m_limbs++], m_digits);
+	out = limb_sar(a[mlimbs++], mdigits);
 	for (i = 0; i < res_limbs; i++) {
-		limb_top = limb_split(&limb_bot, a[m_limbs++], m_digits);
+		limb_top = limb_split(&limb_bot, a[mlimbs++], mdigits);
 		carry = limb_add(res+i, out, limb_bot);
 		assert(!carry);
 		out = limb_top;
 	}
-	if (res_digits > LIMB_DIGITS - m_digits) {
-		limb_bot = limb_sal(a[m_limbs++], LIMB_DIGITS - m_digits);
+	if (res_digits > LIMB_DIGITS - mdigits) {
+		limb_bot = limb_sal(a[mlimbs++], LIMB_DIGITS - mdigits);
 		carry = limb_add(&out, out, limb_bot);
 		assert(!carry);
 	}
