@@ -72,6 +72,24 @@ limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 	}
 }
 
+/* add */
+
+extern bool
+limb_add(limb_t *r, limb_t a, limb_t b)
+{
+	limb_t sum, test;
+	sum = a + b;
+	test = sum - LIMB_BASE;
+	if (test >= 0) {
+		*r = test;
+		return true;
+	}
+	else {
+		*r = sum;
+		return false;
+	}
+}
+
 /* variants on addition: increment if carry set, else just copy */
 
 extern bool

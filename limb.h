@@ -27,6 +27,8 @@ typedef int32_t limb_t;
 
 #define LIMB_DIGITS (9)
 
+/* add */
+bool limb_add(limb_t *, limb_t, limb_t);
 /* add with carry */
 bool limb_adc(limb_t *, limb_t, limb_t, bool);
 /* subtract with borrow */

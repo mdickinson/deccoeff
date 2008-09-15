@@ -240,8 +240,8 @@ limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
 	aa = w+n;
 
 	/* catch most cases where quotient only needs m-n limbs */
-	if (top == 0 && aa[m-1] < bb[n-1])
-		quot[m-n] = 0;
+	if (limb_eq(top, LIMB_ZERO) && limb_lt(aa[m-1], bb[n-1]))
+		quot[m-n] = LIMB_ZERO;
 	else {
 		aa[m] = top;
 		m++;
@@ -288,6 +288,7 @@ limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 {
 	Py_ssize_t n_limbs, n_digits, i;
 	limb_t limb_top, limb_bot, rem;
+	bool carry;
 
 	assert(n >= 0);
 	assert(n <= m*LIMB_DIGITS);
@@ -302,7 +303,8 @@ limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	rem = limb_sar(a[n_limbs], n_digits);
 	for (i = 0; i < m-n_limbs-1; i++) {
 		limb_top = limb_split(&limb_bot, a[n_limbs+i+1], n_digits);
-		res[i] = rem + limb_bot;
+		carry = limb_add(res+i, rem, limb_bot);
+		assert(!carry);
 		rem = limb_top;
 	}
 	res[i] = rem;
@@ -339,6 +341,7 @@ limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 {
 	Py_ssize_t m_limbs, m_digits, res_limbs, res_digits, i;
 	limb_t out, limb_bot, limb_top;
+	bool carry;
 
 	/* number of limbs of result is (n-1-m)/LIMB_DIGITS + 1 */
 	/* want to know whether (n-1-m) % LIMB_DIGITS > LIMB_DIGITS - m % LIMB_DIGITS */
@@ -357,12 +360,14 @@ limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	out = limb_sar(a[m_limbs++], m_digits);
 	for (i = 0; i < res_limbs; i++) {
 		limb_top = limb_split(&limb_bot, a[m_limbs++], m_digits);
-		res[i] = out + limb_bot;
+		carry = limb_add(res+i, out, limb_bot);
+		assert(!carry);
 		out = limb_top;
 	}
 	if (res_digits > LIMB_DIGITS - m_digits) {
 		limb_bot = limb_sal(a[m_limbs++], LIMB_DIGITS - m_digits);
-		out += limb_bot;
+		carry = limb_add(&out, out, limb_bot);
+		assert(!carry);
 	}
 	res[i] = limb_low(out, res_digits);
 }
@@ -375,6 +380,7 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 {
 	Py_ssize_t n_limbs, n_digits, i;
 	limb_t limb_top, tmp;
+	bool carry;
 
 	assert(n >= 0);
 
@@ -394,8 +400,8 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	assert(i == n_limbs);
 	res[i++] = limb_splitl(&limb_top, a[0], n_digits);
 	for (; i < n_limbs+m; i++) {
-		res[i] = limb_top + limb_splitl(&tmp, a[i-n_limbs],
-						n_digits);
+		carry = limb_add(res+i, limb_top, limb_splitl(&tmp, a[i-n_limbs], n_digits));
+		assert(!carry);
 		limb_top = tmp;
 	}
 	res[i] = limb_top;
