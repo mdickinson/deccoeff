@@ -494,38 +494,6 @@ deccoeff_from_ulong(unsigned long x)
 	return z;
 }
 
-/* turn a deccoeff into a Py_ssize_t; return -1 on overflow. */
-
-static Py_ssize_t
-deccoeff_as_Py_ssize_t(deccoeff *a)
-{
-	Py_ssize_t acc, i;
-	limb_t c;
-	bool overflow;
-	acc = 0;
-	for (i = Py_SIZE(a)-1; i >= 0; i--) {
-		c = a->ob_limbs[i];
-		overflow = limb_to_Py_ssize_t(&acc, acc, c);
-		if (overflow)
-			return -1;
-	}
-	return acc;
-}
-
-static deccoeff *
-deccoeff_from_limb(limb_t x)
-{
-	deccoeff *z;
-	if (limb_eq(x, LIMB_ZERO))
-		return deccoeff_zero();
-	z = _deccoeff_new(1);
-	if (z == NULL)
-		return z;
-	z->ob_limbs[0] = x;
-	return z;
-}
-
-
 /***************************
  * Arithmetic on deccoeffs *
  ***************************/
