@@ -291,18 +291,6 @@ limb_to_ulong(unsigned long *acc_out, unsigned long acc_in, limb_t limb) {
 		return true;
 }
 
-extern bool
-limb_to_Py_ssize_t(Py_ssize_t *acc_out, Py_ssize_t acc_in, limb_t limb) {
-	if (acc_in < PY_SSIZE_T_MAX/LIMB_BASE ||
-	    (acc_in == PY_SSIZE_T_MAX/LIMB_BASE &&
-	     limb <= (limb_t)(PY_SSIZE_T_MAX%LIMB_BASE))) {
-		*acc_out = acc_in * LIMB_BASE + limb;
-		return false;
-	}
-	else
-		return true;
-}
-
 extern unsigned long
 limb_hash(limb_t x) {
 	return (unsigned long)x;

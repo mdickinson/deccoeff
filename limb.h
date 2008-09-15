@@ -65,5 +65,4 @@ bool limb_lt(limb_t, limb_t);
 
 limb_t limb_from_ulong(unsigned long *, unsigned long);
 bool limb_to_ulong(unsigned long *, unsigned long, limb_t);
-bool limb_to_Py_ssize_t(Py_ssize_t *, Py_ssize_t, limb_t);
 unsigned long limb_hash(limb_t);
