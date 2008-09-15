@@ -242,7 +242,9 @@ limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
 	assert(limb_eq(top, LIMB_ZERO));
 }
 
-/* shift m-limb number right n digits (not limbs!), 0 <= n <= LIMB_DIGITS*m */
+/* shift m-limb number right n digits (not limbs!).  i.e., divide by
+   10**n.  n should satisfy 0 <= n <= LIMB_DIGITS*m, and the result
+   res has m - n/LIMB_DIGITS limbs. */
 
 static void
 limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
@@ -301,8 +303,9 @@ limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	res[i] = limb_low(out, res_digits);
 }
 
-/* shift m-limb number left n digits (shifting zeros in); assumes that
-   res has size m + ceiling(n/LIMB_DIGITS) */
+/* shift m-limb number left n digits (shifting zeros in); i.e.,
+   multiply by 10**n.  Assumes res has size m +
+   1+(n-1)/LIMB_DIGITS (or just size m if n == 0). */
 
 static void
 limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
@@ -312,21 +315,15 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	bool carry;
 
 	assert(n >= 0);
-
 	n_limbs = n / LIMB_DIGITS;
 	n_digits = n % LIMB_DIGITS;
-
 	for (i = 0; i < n_limbs; i++)
 		res[i] = LIMB_ZERO;
-
 	if (n_digits == 0) {
 		for (; i < n_limbs+m; i++)
 			res[i] = a[i-n_limbs];
 		return;
 	}
-
-	/* shift bottom digit up;  keep low part */
-	assert(i == n_limbs);
 	res[i++] = limb_splitl(&limb_top, a[0], n_digits);
 	for (; i < n_limbs+m; i++) {
 		carry = limb_add(res+i, limb_top, limb_splitl(&tmp, a[i-n_limbs], n_digits));
