@@ -71,33 +71,11 @@ typedef limb_t *limbs;
 typedef const limb_t *const_limbs;
 
 static bool
-limbs_inc(limbs res, const_limbs a, Py_ssize_t n)
-{
-	Py_ssize_t i;
-	bool carry;
-	carry = true;
-	for (i=0; i < n; i++)
-		carry = limb_incc(res+i, a[i], carry);
-	return carry;
-}
-
-static bool
 limbs_incc(limbs res, const_limbs a, Py_ssize_t n, bool carry)
 {
 	Py_ssize_t i;
 	for (i=0; i < n; i++)
 		carry = limb_incc(res+i, a[i], carry);
-	return carry;
-}
-
-static bool
-limbs_dec(limbs res, const_limbs a, Py_ssize_t n)
-{
-	Py_ssize_t i;
-	bool carry;
-	carry = true;
-	for (i=0; i < n; i++)
-		carry = limb_sbb(res+i, a[i], LIMB_ZERO, carry);
 	return carry;
 }
 
@@ -108,14 +86,6 @@ limbs_decc(limbs res, const_limbs a, Py_ssize_t n, bool carry)
 	for (i=0; i < n; i++)
 		carry = limb_sbb(res+i, a[i], LIMB_ZERO, carry);
 	return carry;
-}
-
-static void
-limbs_copy(limbs res, const_limbs a, Py_ssize_t n)
-{
-	Py_ssize_t i;
-	for (i=0; i < n; i++)
-		res[i] = a[i];
 }
 
 /* add n-limb numbers a and b, producing an n-limb result res and a carry */
