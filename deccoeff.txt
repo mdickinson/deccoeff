@@ -1,0 +1,74 @@
+Deccoeff (for *Dec*imal *coeff*icient) is an extension type for Python
+3.0 that represents nonnegative integers, while making access to the
+decimal digits of the usual decimal string representation of a
+nonnegative integer easy and efficient.
+
+As you'd expect, you can do arithmetic directly with Deccoeff
+instances: addition, subtraction, multiplication, division, remainder,
+comparisons, power and divmod all work as expected:
+
+>>> from deccoeff import Deccoeff
+>>> x = Deccoeff('7')
+>>> y = Deccoeff('11')
+>>> x + y
+Deccoeff('18')
+>>> x * y
+Deccoeff('77')
+>>> y - x
+Deccoeff('4')
+>>> x < y
+True
+
+Only nonnegative integers can be represented as Deccoeff instances,
+since that's all that's needed for Decimal: a subtraction that would
+produce a negative result raises OverflowError:
+
+>>> x-y
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+    OverflowError: difference is negative and cannot be represented as a Deccoeff
+
+Powering also works (but three-argument pow is not currently supported):
+
+>>> x ** y
+Deccoeff('1977326743')
+>>> y ** x
+Deccoeff('19487171')
+
+So much for arithmetic:  a Deccoeff instance can also be treated as a sequence:
+it can be sliced (though the 'step' argument is not supported):
+
+>>> x = Deccoeff('123456789')
+>>> x[2:]
+Deccoeff('1234567')
+>>> x[:5]
+Deccoeff('56789')
+
+and indexed:
+
+>>> x[3]
+Deccoeff('6')
+
+The length gives the total number of digits:
+
+>>> len(x)
+9
+
+Note that the indices work in the opposite direction to the one you
+might expect by looking at the string representation of a Deccoeff:
+indexing is set up so that index 0 refers to the units digit, 1 to the
+tens digit, 2 to the hundreds digit, etc.
+
+Negative indices also make sense (but not in the usual Python sense of
+counting from the end of the object): you should imagine the Deccoeff
+as a finite string of digits padded with zeros infinitely on both the
+left and right.  Then it makes sense to do, for example:
+
+>>> x[-2:]
+Deccoeff('12345678900')
+>>> x[-3:4]
+Deccoeff('6789000')
+
+This provides a convenient way to do a 'decimal shift left'.  There
+are many places in Decimal where it's appropriate to use x[n:] without
+knowing in advance whether n is positive or negative.
