@@ -334,6 +334,51 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	res[i] = limb_top;
 }
 
+/* convert an array of (base 2**15) digits for a Python long to an array of
+   limbs representing the same number.  Returns the number of limbs of a
+   filled.  The result is normalized, in the sense that if the returned size
+   a_size is nonzero then a[a_size-1] is nonzero. */
+
+/* number of limbs needed for result is:
+
+   ceiling((b_size - 1) * log(2**15)/log(LIMB_BASE)) + PYLONG_BASE_SIZE
+
+*/
+
+static Py_ssize_t
+limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
+{
+	Py_ssize_t i, j, k, a_size;
+	limb_t high, *w, alimb;
+	unsigned long bdigit;
+
+	a_size = 0;
+	for (k = b_size-1; k >= 0; k--) {
+		/* invariant: a_size <= ceil(k * log(2**15)/log(LIMB_BASE)) */
+		bdigit = (unsigned long)(b[k]);
+		w = a + a_size;
+		for (j=0; j < PYLONG_BASE_SIZE; j++)
+			w[j] = limb_from_ulong(&bdigit, bdigit);
+		assert(bdigit == 0);
+		/* multiply a by PYLONG_BASE, adding in the array w */
+		for (i=0; i < a_size; i++) {
+			alimb = a[i];
+			high = limb_fmaa(a+i, alimb, PYLONG_BASE_LIMBS[0],
+					 LIMB_ZERO, w[0]);
+			for (j = 1; j < PYLONG_BASE_SIZE; j++)
+				high = limb_fmaa(w+j-1, alimb,
+						 PYLONG_BASE_LIMBS[j],
+						 high, w[j]);
+			w[j-1] = high;
+		}
+		/* normalize */
+		a_size += PYLONG_BASE_SIZE;
+		while (a_size > 0 && limb_eq(a[a_size-1], LIMB_ZERO))
+			a_size--;
+	}
+	return a_size;
+}
+
 /**************************
  * deccoeff : definitions *
  **************************/
@@ -807,23 +852,18 @@ deccoeff_richcompare(PyObject *self, PyObject *other, int op)
 
 /* Create a deccoeff from a Python long integer */
 
-/* Naive algorithm; needs optimization. But not before testing with a range of
-   limb_t sizes. */
-
 static deccoeff *
 deccoeff_from_PyLong(deccoeff *self, PyObject *o)
 {
-	Py_ssize_t a_size;
+	Py_ssize_t a_size, z_size;
 	PyLongObject *a;
-	digit *a_start, *a_end;
-	deccoeff *result, *result2, *addend;
+	deccoeff * z;
 
 	if (!PyLong_Check(o)) {
 		PyErr_SetString(PyExc_TypeError,
 				"argument must be a long");
 		return NULL;
 	}
-
 	a = (PyLongObject *)o;
 	a_size = Py_SIZE(a);
 
@@ -832,35 +872,23 @@ deccoeff_from_PyLong(deccoeff *self, PyObject *o)
 				"Can't convert negative integer to a deccoeff");
 		return NULL;
 	}
+	else if (a_size == 0)
+		return deccoeff_zero();
 
-	result = deccoeff_zero();
-
-	a_start = a->ob_digit;
-	a_end = a_start+a_size;
-	while (a_end > a_start) {
-
-		/* multiply result by PyLong_BASE, freeing old reference */
-		result2 = (deccoeff *)deccoeff_multiply(deccoeff_PyLong_BASE, result);
-		Py_DECREF(result);
-		result = result2;
-		if (result == NULL)
-			return NULL;
-
-		/* add PyLong digit to result */
-		addend = deccoeff_from_ulong((unsigned long)(*--a_end));
-		if (addend == NULL) {
-			Py_DECREF(result);
-			return NULL;
-		}
-
-		result2 = (deccoeff *)deccoeff_add(result, addend);
-		Py_DECREF(result);
-		Py_DECREF(addend);
-		result = result2;
-		if (result == NULL)
-			return NULL;
-	}
-	return result;
+	z_size = limbsize_from_longsize(a_size-1) + PYLONG_BASE_SIZE;
+	if (z_size >= 2*MAX_DIGITS)
+		goto Overflow;
+	z = _deccoeff_new(z_size);
+	if (z==NULL)
+		return NULL;
+	Py_SIZE(z) = limbs_from_longdigits(z->ob_limbs, a->ob_digit, a_size);
+	if (deccoeff_checksize(z))
+		return z;
+	Py_DECREF(z);
+  Overflow:
+	PyErr_SetString(PyExc_OverflowError,
+			"result is too large to represent");
+	return NULL;
 }
 
 /* we also need (eventually) a routine to convert a deccoeff back into a

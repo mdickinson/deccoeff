@@ -27,6 +27,11 @@ typedef int32_t limb_t;
 
 #define LIMB_DIGITS (9)
 
+/* number of limbs required to hold a PyLong digit */
+#define PYLONG_BASE_SIZE 1
+
+limb_t PYLONG_BASE_LIMBS[PYLONG_BASE_SIZE];
+
 /* add */
 bool limb_add(limb_t *, limb_t, limb_t);
 /* add with carry */
@@ -68,3 +73,5 @@ bool limb_lt(limb_t, limb_t);
 limb_t limb_from_ulong(unsigned long *, unsigned long);
 bool limb_to_ulong(unsigned long *, unsigned long, limb_t);
 unsigned long limb_hash(limb_t);
+
+Py_ssize_t limbsize_from_longsize(Py_ssize_t);

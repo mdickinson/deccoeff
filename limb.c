@@ -29,6 +29,10 @@
 
 #define LIMB_BASE (LIMB_MAX+1)
 
+limb_t PYLONG_BASE_LIMBS[PYLONG_BASE_SIZE] = {
+	32768
+};
+
 typedef int64_t double_limb_t;
 
 static limb_t powers_of_ten[LIMB_DIGITS+1] = {
@@ -312,4 +316,21 @@ limb_to_ulong(unsigned long *acc_out, unsigned long acc_in, limb_t limb) {
 extern unsigned long
 limb_hash(limb_t x) {
 	return (unsigned long)x;
+}
+
+/* given a nonnegative integer n representing a number of PyLong digits,
+   return an upper bound for the number of limbs required to hold that many
+   digits.  Return PY_SSIZE_T_MAX on overflow. */
+
+extern Py_ssize_t
+limbsize_from_longsize(Py_ssize_t n) {
+	/* compute ceiling(146*n/291); 146/291 is a touch larger than
+	   log(2**15)/log(10**9).  we're making n smaller, so there's no
+	   danger of overflow. */
+	if (n < 10000000)
+		/* n not too large (usual case) */
+		return (n*146+291 - 1)/291;
+	else
+		/* n large; rewrite the above expression to avoid overflow */
+		return n/291*146 + (n%291*146 + 290)/291;
 }
