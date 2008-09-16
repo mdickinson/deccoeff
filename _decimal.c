@@ -17,6 +17,7 @@
  *  write Deccoeff-specific tests
  *  export LIMB_DIGITS to Python
  *  make sure single-limb adds, subs, muls are as fast as possible
+ *  rename a, m to a, a_size throughout...
  *
  */
 
@@ -342,14 +343,17 @@ typedef struct {
   limb_t ob_limbs[0];
 } deccoeff;
 
-/* We place an upper bound MAX_DIGITS on the number of decimal digits (*not*
-   the number of limbs).  MAX_DIGITS should fit into a Py_ssize_t, so that
-   length and indexing always make sense. */
-
-/* XXX add code to make sure that MAX_DIGITS fits in a Py_ssize_t.
-   Or possibly to make sure that 2*MAX_DIGITS fits in a Py_ssize_t. */
+/* We place an upper bound MAX_DIGITS on the number of decimal digits
+   (*not* the number of limbs).  MAX_DIGITS should fit into a
+   Py_ssize_t, so that length and indexing always make sense.  Here we
+   take MAX_DIGITS = 10**9; then assuming that a Py_ssize_t is at
+   least 32 bits we're safe from overflow even when adding two digit
+   counts. */
 
 #define MAX_DIGITS 1000000000
+
+/* deccoeff_const_zero and deccoeff_const_one are initialized on
+   module initialization */
 
 static deccoeff *deccoeff_const_zero;
 static deccoeff *deccoeff_const_one;
@@ -430,7 +434,11 @@ deccoeff_from_ulong(unsigned long x)
  * Arithmetic on deccoeffs *
  ***************************/
 
-/* addition: raise OverflowError if result has more than MAX_DIGITS digits */
+/* General rules: if the result of any arithmetic operation falls
+   outside the range [0, 10**MAX_DIGITS) then OverflowError is raised.
+   Results are always normalized. */
+
+/* addition */
 
 static deccoeff *
 deccoeff_add(deccoeff *a, deccoeff *b)
@@ -462,7 +470,7 @@ deccoeff_add(deccoeff *a, deccoeff *b)
 	return NULL;
 }
 
-/* subtraction: return a - b; raise OverflowError if the result is negative */
+/* subtraction */
 
 static deccoeff *
 deccoeff_subtract(deccoeff *a, deccoeff *b)
@@ -488,7 +496,7 @@ deccoeff_subtract(deccoeff *a, deccoeff *b)
 	return NULL;
 }
 
-/* multiplication: return a * b.  Raise OverflowError if result too large. */
+/* multiplication */
 
 static deccoeff *
 deccoeff_multiply(deccoeff *a, deccoeff *b)
@@ -587,7 +595,7 @@ deccoeff_divmod(deccoeff *a, deccoeff *b) {
 	return Py_BuildValue("OO", (PyObject *)quot, (PyObject *)rem);
 }
 
-/* negation: succeeds only for a == 0 */
+/* negation: succeeds only for a == 0;  for anything else, OverflowError is raised */
 
 static deccoeff *
 deccoeff_negative(deccoeff *a)
@@ -618,9 +626,8 @@ deccoeff_bool(deccoeff *a)
 	return Py_SIZE(a) != 0;
 }
 
-/* left shift; second operand should be a nonnegative Python integer, not a
-   deccoeff. raises ValueError if second operand is negative, and
-   OverflowError if result has more than MAX_DIGITS digits. */
+/* left shift; second operand is a Python integer, not a
+   deccoeff. raises ValueError if second operand is negative */
 
 static deccoeff *
 deccoeff_lshift(deccoeff *a, PyObject *b) {
@@ -654,8 +661,8 @@ deccoeff_lshift(deccoeff *a, PyObject *b) {
 	return NULL;
 }
 
-/* right shift; second operand is a Python integer, not a deccoeff.  Raises
-   ValueError if second operand is negative. */
+/* right shift; second operand is a Python integer, not a deccoeff.
+   Raises ValueError if second operand is negative. */
 
 static deccoeff *
 deccoeff_rshift(deccoeff *a, PyObject *b) {
@@ -681,7 +688,8 @@ deccoeff_rshift(deccoeff *a, PyObject *b) {
 	return deccoeff_normalize(z);
 }
 
-/* slice */
+/* slice: the slice indices should be nonnegative integers;  the step
+   argument is not supported and is expected to be None. */
 
 static deccoeff *
 deccoeff_subscript(deccoeff *a, PyObject *b)
@@ -756,7 +764,7 @@ deccoeff_subscript(deccoeff *a, PyObject *b)
 	return deccoeff_normalize(z);
 }
 
-/* floor division */
+/* floor division:  raise ZeroDivisionError if b is 0 */
 
 static deccoeff *
 deccoeff_floor_divide(deccoeff *a, deccoeff *b) {
@@ -768,7 +776,8 @@ deccoeff_floor_divide(deccoeff *a, deccoeff *b) {
 	return quot;
 }
 
-/* compare: return -1 if a < b, 0 if a == b, 1 if a > b.  Always succeeds. */
+/* compare: return -1 if a < b, 0 if a == b, 1 if a > b.  Always
+   succeeds. */
 
 static int
 _deccoeff_compare(deccoeff *a, deccoeff *b)
