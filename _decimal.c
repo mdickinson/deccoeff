@@ -383,26 +383,25 @@ limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
  * deccoeff : definitions *
  **************************/
 
+/* We place an upper bound MAX_DIGITS on the number of decimal digits (*not*
+   the number of limbs) in a deccoeff.  MAX_DIGITS should fit into a
+   Py_ssize_t, so that length and indexing always make sense.  Here we take
+   MAX_DIGITS = 10**9; then assuming that a Py_ssize_t is at least 32 bits
+   we're safe from overflow even when adding two digit counts. */
+
+#define MAX_DIGITS 1000000000
+
 typedef struct {
   PyObject_VAR_HEAD
   limb_t ob_limbs[0];
 } deccoeff;
 
-/* We place an upper bound MAX_DIGITS on the number of decimal digits
-   (*not* the number of limbs).  MAX_DIGITS should fit into a
-   Py_ssize_t, so that length and indexing always make sense.  Here we
-   take MAX_DIGITS = 10**9; then assuming that a Py_ssize_t is at
-   least 32 bits we're safe from overflow even when adding two digit
-   counts. */
-
-#define MAX_DIGITS 1000000000
-
-/* deccoeff_const_zero and deccoeff_const_one are initialized on
-   module initialization */
-
+/* the following three constants are initialized during
+   module initialization.*/
 static deccoeff *deccoeff_const_zero;
 static deccoeff *deccoeff_const_one;
 static deccoeff *deccoeff_PyLong_BASE;
+
 
 static PyTypeObject deccoeff_DeccoeffType;
 
