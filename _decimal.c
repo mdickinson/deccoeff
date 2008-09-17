@@ -39,8 +39,7 @@
    be stored in binary.
 
 */
-#include "Python.h"
-#include "longintrepr.h"
+
 #include "limb.h"
 #include "string.h"
 

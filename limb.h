@@ -1,9 +1,10 @@
+#include <stdint.h>
 #include <stdbool.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-
 #include "Python.h"
+#include "longintrepr.h"
 
 /*
 typedef long Py_ssize_t;
@@ -72,7 +73,6 @@ limb_t limb_setdigit(limb_t, Py_ssize_t, char);
 bool limb_eq(limb_t, limb_t);
 bool limb_le(limb_t, limb_t);
 bool limb_lt(limb_t, limb_t);
-
 
 limb_t limb_from_ulong(unsigned long *, unsigned long);
 limb_t limb_from_digitpair(digitpair *, digitpair);

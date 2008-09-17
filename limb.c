@@ -19,8 +19,6 @@
    the same integer, or may not even be encoded as a C integer type).
 */
 
-#include <stdint.h>
-#include <stdbool.h>
 #include <assert.h>
 #include "limb.h"
 
