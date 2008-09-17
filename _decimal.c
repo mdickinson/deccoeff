@@ -8,6 +8,7 @@
 /*
  *  To do
  *  -----
+ *  Make from_int function a classmethod.
  *  Add type checks for binary arithmetic ops.
  *  fast recursive algorithms for multiplication, division, base conversion
  *  docstrings
@@ -236,9 +237,8 @@ limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
 		}
 		quot[j] = q;
 	}
-	/* at the end of this loop, the bottom n limbs of a give the
-	   remainder, which needs to be divided through by the scale factor.
-	   XXX this step can be skipped when all we want is the quotient. */
+	/* OPT: optimization opportunity---this final step
+	   can be skipped when all we want is the quotient. */
 	top = limbs_div1(rem, aa, n, scale);
 	assert(limb_eq(top, LIMB_ZERO));
 }
@@ -349,7 +349,7 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
  */
 
 static Py_ssize_t
-limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
+limbs_from_longdigits(limbs a, const digit *b, Py_ssize_t b_size)
 {
 	Py_ssize_t i, j, a_size;
 	digitpair high;
@@ -370,10 +370,10 @@ limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
 	return a_size;
 }
 
-/* Base conversion, from base LIMB_BASE to base 2**30. */
+/* base conversion, from base LIMB_BASE to base 2**30. */
 
 static Py_ssize_t
-limbs_to_longdigits(digitpair *b, limbs a, Py_ssize_t a_size)
+limbs_to_longdigits(digitpair *b, const_limbs a, Py_ssize_t a_size)
 {
 	Py_ssize_t i, j, b_size;
 	limb_t high;
@@ -911,6 +911,7 @@ deccoeff_long(deccoeff *a)
 	/* check normalization */
 	assert(Py_SIZE(b) == 0 ||
 	       (Py_SIZE(b) > 0 && b->ob_digit[Py_SIZE(b)-1] != 0));
+
 	return (PyObject *)b;
 }
 
@@ -1218,8 +1219,5 @@ PyInit__decimal(void)
 	deccoeff_const_zero = _deccoeff_new(0);
 	if (deccoeff_const_zero == NULL)
 		return NULL;
-	/* XXX do we need to deallocate deccoeff_const_zero somewhere at
-	   module cleanup time? */
-
 	return m;
 }
