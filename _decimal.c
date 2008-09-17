@@ -333,16 +333,19 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	res[i] = limb_top;
 }
 
-/* convert an array of (base 2**15) digits for a Python long to an array of
-   limbs representing the same number.  Returns the number of limbs of a
-   filled.  The result is normalized, in the sense that if the returned size
-   a_size is nonzero then a[a_size-1] is nonzero. */
+/* Base conversion, from base 2**15 to base LIMB_BASE.
 
-/* number of limbs needed for result is:
+   Convert an array of (base 2**15) digits for a Python long to an
+   array of limbs representing the same number.  Returns the number of
+   limbs of a filled.  The result is normalized, in the sense that if
+   the returned size a_size is nonzero then a[a_size-1] is nonzero.
 
-   ceiling((b_size - 1) * log(2**15)/log(LIMB_BASE)) + PYLONG_BASE_SIZE
+   a should have at least:
 
-*/
+     ceiling(b_size * log(2**15)/log(LIMB_BASE))
+
+   limbs available.
+ */
 
 static Py_ssize_t
 limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
