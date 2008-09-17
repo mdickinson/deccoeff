@@ -350,14 +350,15 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 static Py_ssize_t
 limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
 {
-	Py_ssize_t i, k, a_size;
+	Py_ssize_t i, j, a_size;
 	digitpair high;
 	a_size = 0;
-	for (k = (b_size-1)&(~1); k >= 0; k-=2) {
-		if (k+1 < b_size)
-			high = DIGIT_PAIR(b[k+1], b[k]);
+	/* we process one pair of PyLong digits at a time */
+	for (j = (b_size-1)&(~1); j >= 0; j-=2) {
+		if (j+1 < b_size)
+			high = DIGIT_PAIR(b[j+1], b[j]);
 		else
-			high = DIGIT_PAIR(0, b[k]);
+			high = DIGIT_PAIR(0, b[j]);
 		for (i=0; i < a_size; i++)
 			high = limb_digitpair_swap(a+i, a[i], high);
 		while (high != 0)
