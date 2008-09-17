@@ -1,7 +1,7 @@
 PYTHON = ../py3k/python.exe
 
 all: _decimal.so
-module: 
+module:
 	$(PYTHON) setup.py build
 	cp build/lib*/_decimal.so .
 clean:
@@ -17,7 +17,7 @@ profile: _decimal.so
 	$(PYTHON) -i profile.py
 
 debug: _decimal.so
-	gdb $(PYTHON) 
+	gdb $(PYTHON)
 
 _decimal.so: _decimal.c limb.c
 	$(PYTHON) setup.py build
