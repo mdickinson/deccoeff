@@ -299,6 +299,12 @@ limb_from_ulong(unsigned long *quotient, unsigned long x) {
 	return (limb_t)(x % LIMB_MAX);
 }
 
+extern limb_t
+limb_from_digitpair(digitpair *quotient, digitpair x) {
+	*quotient = x / (LIMB_BASE);
+	return (limb_t)(x % LIMB_MAX);
+}
+
 /* acc_out = acc_in * LIMB_BASE + limb. return 0 on success, 1 on overflow */
 
 extern bool
@@ -316,6 +322,19 @@ limb_to_ulong(unsigned long *acc_out, unsigned long acc_in, limb_t limb) {
 extern unsigned long
 limb_hash(limb_t x) {
 	return (unsigned long)x;
+}
+
+/* given limb a and digit pair b, write a*2**30 + b in the form
+   c*LIMB_BASE + d, with c a digit pair and d a limb.  Return c and
+   put d in *low. */
+
+extern digitpair
+limb_digitpair_swap(limb_t *low, limb_t a, digitpair b)
+{
+	double_limb_t hilo;
+	hilo = ((double_limb_t)a << (2*PyLong_SHIFT)) + b;
+	*low = (limb_t)(hilo%LIMB_BASE);
+	return (digitpair)(hilo/LIMB_BASE);
 }
 
 /* given a nonnegative integer n representing a number of PyLong digits,

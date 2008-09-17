@@ -32,6 +32,10 @@ typedef int32_t limb_t;
 
 limb_t PYLONG_BASE_LIMBS[PYLONG_BASE_SIZE];
 
+/* digit pair is used to hold a pair of PyLong digits */
+typedef int32_t digitpair;
+#define DIGIT_PAIR(a, b) (((digitpair)(a) << PyLong_SHIFT) | (b))
+
 /* add */
 bool limb_add(limb_t *, limb_t, limb_t);
 /* add with carry */
@@ -71,7 +75,10 @@ bool limb_lt(limb_t, limb_t);
 
 
 limb_t limb_from_ulong(unsigned long *, unsigned long);
+limb_t limb_from_digitpair(digitpair *, digitpair);
 bool limb_to_ulong(unsigned long *, unsigned long, limb_t);
 unsigned long limb_hash(limb_t);
+
+digitpair limb_digitpair_swap(limb_t *, limb_t, digitpair);
 
 Py_ssize_t limbsize_from_longsize(Py_ssize_t);
