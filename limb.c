@@ -27,10 +27,6 @@
 
 #define LIMB_BASE (LIMB_MAX+1)
 
-limb_t PYLONG_BASE_LIMBS[PYLONG_BASE_SIZE] = {
-	32768
-};
-
 typedef int64_t double_limb_t;
 
 static limb_t powers_of_ten[LIMB_DIGITS+1] = {
@@ -74,69 +70,6 @@ limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 	}
 }
 
-/* add */
-
-extern bool
-limb_add(limb_t *r, limb_t a, limb_t b)
-{
-	limb_t sum, test;
-	sum = a + b;
-	test = sum - LIMB_BASE;
-	if (test >= 0) {
-		*r = test;
-		return true;
-	}
-	else {
-		*r = sum;
-		return false;
-	}
-}
-
-/* variants on addition: increment if carry set, else just copy */
-
-extern bool
-limb_incc(limb_t *r, limb_t a, bool c)
-{
-	limb_t sum;
-	sum = a + (c ? LIMB_ONE : LIMB_ZERO);
-	if (sum == LIMB_BASE) {
-		*r = 0;
-		return true;
-	}
-	else {
-		*r = sum;
-		return false;
-	}
-}
-
-/* and simply increment */
-
-extern bool
-limb_inc(limb_t *r, limb_t a)
-{
-	if (a == LIMB_MAX) {
-		*r = 0;
-		return true;
-	}
-	else {
-		*r = a+1;
-		return false;
-	}
-}
-
-extern bool
-limb_dec(limb_t *r, limb_t a)
-{
-	if (a == 0) {
-		*r = LIMB_MAX;
-		return true;
-	}
-	else {
-		*r = a-1;
-		return false;
-	}
-}
-
 /* subtract with borrow:  compute a - (b + c); put result in *r
    and return the carry. */
 
@@ -154,9 +87,6 @@ limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
 		return false;
 	}
 }
-
-#define HIGH_LIMB(x) ((limb_t)(x / LIMB_BASE))
-#define LOW_LIMB(x) ((limb_t)(x % LIMB_BASE))
 
 /* comparisons between limbs */
 
@@ -190,8 +120,9 @@ limb_fmaa(limb_t *low, limb_t a, limb_t b, limb_t c, limb_t d) {
 	return (limb_t)(hilo/LIMB_BASE);
 }
 
-/* divide high*BASE+low by c, giving a quotient (returned) and a remainder
-   (stored in *rem). */
+/* division: divide high*BASE+low by c, giving a quotient (returned)
+   and a remainder (stored in *rem).  Requires that high < c (and
+   hence that c is nonzero). */
 
 extern limb_t
 limb_div(limb_t *rem, limb_t high, limb_t low, limb_t c) {
@@ -263,15 +194,6 @@ limb_low(limb_t x, Py_ssize_t n) {
 	return x % powers_of_ten[n];
 }
 
-/* mask out the bottom n digits of a limb (0 <= n <= LIMB_DIGITS) */
-
-extern limb_t
-limb_high(limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("invalid shift count in limb_high");
-	return x - x % powers_of_ten[n];
-}
-
 extern char
 limb_getdigit(limb_t x, Py_ssize_t n) {
 	if (!(0 <= n && n < LIMB_DIGITS))
@@ -288,39 +210,7 @@ limb_setdigit(limb_t x, Py_ssize_t n, char d) {
 	return x + powers_of_ten[n] * (limb_t)(d - limb_getdigit(x, n));
 }
 
-/* given an unsigned long x, return x % LIMB_BASE and put the quotient x /
-   LIMB_BASE in *quotient.  *quotient and x may be the same location. */
-
-extern limb_t
-limb_from_ulong(unsigned long *quotient, unsigned long x) {
-	*quotient = x / (LIMB_BASE);
-	return (limb_t)(x % LIMB_BASE);
-}
-
-extern limb_t
-limb_from_digitpair(digitpair *quotient, digitpair x) {
-	*quotient = x / (LIMB_BASE);
-	return (limb_t)(x % LIMB_BASE);
-}
-
-/* acc_out = acc_in * LIMB_BASE + limb. return 0 on success, 1 on overflow */
-
-extern bool
-limb_to_ulong(unsigned long *acc_out, unsigned long acc_in, limb_t limb) {
-	if (acc_in < ULONG_MAX/LIMB_BASE ||
-	    (acc_in == ULONG_MAX/LIMB_BASE &&
-	     limb <= (limb_t)(ULONG_MAX%LIMB_BASE))) {
-		*acc_out = acc_in * LIMB_BASE + limb;
-		return false;
-	}
-	else
-		return true;
-}
-
-extern unsigned long
-limb_hash(limb_t x) {
-	return (unsigned long)x;
-}
+typedef int64_t digitpair_limb_t;
 
 /* given limb a and digit pair b, write a*2**30 + b in the form
    c*LIMB_BASE + d, with c a digit pair and d a limb.  Return c and
@@ -330,7 +220,7 @@ extern digitpair
 limb_digitpair_swap(limb_t *low, limb_t a, digitpair b)
 {
 	digitpair_limb_t hilo;
-	hilo = ((digitpair_limb_t)a << (2*PyLong_SHIFT)) + b;
+	hilo = ((digitpair_limb_t)a << DIGIT_PAIR_SHIFT) + b;
 	*low = (limb_t)(hilo%LIMB_BASE);
 	return (digitpair)(hilo/LIMB_BASE);
 }
@@ -373,4 +263,9 @@ longsize_from_limbsize(Py_ssize_t n) {
 	   0.9965792474...
 	   is slightly better.  Let's go with 1 and waste some space... */
 	return n;
+}
+
+extern unsigned long
+limb_hash(limb_t x) {
+	return (unsigned long)x;
 }

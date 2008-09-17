@@ -1,8 +1,10 @@
 /*
- *  Replace limbs.c/limbs.h with an implementation involving strings (or
- *    structs), just to check that _decimal.c is properly independent of the
- *    exact implementation.
- *  Search for XXXs!
+ * Module implementing arbitrary-precision natural number arithmetic
+ * in a decimal base.  As the name 'deccoeff' suggests, these numbers
+ * are intended to be used as the coefficients for Decimal instances.
+ *
+ * Author: Mark Dickinson.  Licensed to the PSF under a Contributor
+ * Agreement.
  */
 
 /*
@@ -12,26 +14,13 @@
  *  Add type checks for binary arithmetic ops.
  *  fast recursive algorithms for multiplication, division, base conversion
  *  docstrings
- *  fix some C99isms.  (ob_limbs[0] is invalid in C89.  stdint and stdbool aren't
- *    available...)
+ *  fix some C99isms.  (ob_limbs[0] is invalid in C89.  stdint and
+ *      stdbool aren't available...)
  *  provide fallback for systems that don't have a 64-bit integer type
  *  implement two and three-argument pow
  *  write Deccoeff-specific tests
  *  export LIMB_DIGITS to Python
- *  make sure single-limb adds, subs, muls are as fast as possible
- *  rename a, m to a, a_size throughout...
- *
  */
-
-/*
- * Module implementing high-precision natural number arithmetic in a
- * decimal base.  As the name 'deccoeff' suggests, these numbers are
- * intended to be used as the coefficients for Decimal instances.
- *
- * Author: Mark Dickinson.  Licensed to PSF under a Contributor
- * Agreement.
- */
-
 
 /* Various notes:
 
@@ -72,26 +61,26 @@
 typedef limb_t *limbs;
 typedef const limb_t *const_limbs;
 
-/* increment n-limb number a if carry is true, else just copy it; gives n-limb result
-   and returns a carry */
+/* increment n-limb number a if carry is true, else just copy it; gives n-limb
+   result and returns a carry */
 
 static bool
-limbs_incc(limbs res, const_limbs a, Py_ssize_t n, bool carry)
+limbs_incc(limbs res, const_limbs a, Py_ssize_t a_size, bool carry)
 {
 	Py_ssize_t i;
-	for (i=0; i < n; i++)
-		carry = limb_incc(res+i, a[i], carry);
+	for (i=0; i < a_size; i++)
+		carry = limb_adc(res+i, a[i], LIMB_ZERO, carry);
 	return carry;
 }
 
-/* decrement n-limb number a if carry is true, else just copy it; gives n-limb result
-   and returns a carry */
+/* decrement n-limb number a if carry is true, else just copy it; gives n-limb
+   result and returns a carry */
 
 static bool
-limbs_decc(limbs res, const_limbs a, Py_ssize_t n, bool carry)
+limbs_decc(limbs res, const_limbs a, Py_ssize_t a_size, bool carry)
 {
 	Py_ssize_t i;
-	for (i=0; i < n; i++)
+	for (i=0; i < a_size; i++)
 		carry = limb_sbb(res+i, a[i], LIMB_ZERO, carry);
 	return carry;
 }
@@ -127,12 +116,12 @@ limbs_sub(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
    an extra high limb (returned separately). */
 
 static limb_t
-limbs_mul1(limbs res, const_limbs a, Py_ssize_t n, limb_t x)
+limbs_mul1(limbs res, const_limbs a, Py_ssize_t a_size, limb_t x)
 {
 	limb_t high;
 	Py_ssize_t i;
 	high = LIMB_ZERO;
-	for (i=0; i < n; i++)
+	for (i=0; i < a_size; i++)
 		high = limb_fmaa(res+i, a[i], x, high, LIMB_ZERO);
 	return high;
 }
@@ -140,15 +129,16 @@ limbs_mul1(limbs res, const_limbs a, Py_ssize_t n, limb_t x)
 /* multiply m-limb a by n-limb b, getting m+n-limb result res */
 
 static void
-limbs_mul(limbs res, const_limbs a, Py_ssize_t m, const_limbs b, Py_ssize_t n)
+limbs_mul(limbs res, const_limbs a, Py_ssize_t a_size,
+	  const_limbs b, Py_ssize_t b_size)
 {
 	Py_ssize_t i, j;
 	limb_t hiword;
-	for (j=0; j < n; j++)
+	for (j=0; j < b_size; j++)
 		res[j] = LIMB_ZERO;
-	for (i=0; i < m; i++) {
+	for (i=0; i < a_size; i++) {
 		hiword = LIMB_ZERO;
-		for (j=0; j < n; j++)
+		for (j=0; j < b_size; j++)
 			hiword = limb_fmaa(res+i+j, a[i], b[j],
 					   res[i+j], hiword);
 		res[i+j] = hiword;
@@ -188,7 +178,7 @@ limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
 
 	/* compute scale factor for normalization: floor(LIMB_BASE /
 	   (b_top+1)) */
-	carry = limb_inc(&scale, b[n-1]);
+	carry = limb_adc(&scale, b[n-1], LIMB_ONE, false);
 	if (carry)
 		scale = LIMB_ONE;
 	else
@@ -224,15 +214,15 @@ limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
 		/* compute bottom n limbs of aa[j:] - q*bb */
 		top = limbs_mul1(rem, bb, n, q);
 		carry = limbs_sub(aa, aa, rem, n);
-		carry = limb_incc(&top, top, carry);
+		carry = limb_adc(&top, top, LIMB_ZERO, carry);
 		assert(!carry);
 		assert(limb_le(a_top, top));
 		/* correct if necessary */
 		while (limb_lt(a_top, top)) {
 			carry = limbs_add(aa, aa, bb, n);
-			carry = limb_incc(&a_top, a_top, carry);
+			carry = limb_adc(&a_top, a_top, LIMB_ZERO, carry);
 			assert(!carry);
-			carry = limb_dec(&q, q);
+			carry = limb_sbb(&q, q, LIMB_ONE, false);
 			assert(!carry);
 		}
 		quot[j] = q;
@@ -267,7 +257,7 @@ limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	rem = limb_sar(a[n_limbs], n_digits);
 	for (i = 0; i < m-n_limbs-1; i++) {
 		limb_top = limb_split(&limb_bot, a[n_limbs+i+1], n_digits);
-		carry = limb_add(res+i, rem, limb_bot);
+		carry = limb_adc(res+i, rem, limb_bot, false);
 		assert(!carry);
 		rem = limb_top;
 	}
@@ -292,13 +282,13 @@ limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	out = limb_sar(a[mlimbs++], mdigits);
 	for (i = 0; i < res_limbs; i++) {
 		limb_top = limb_split(&limb_bot, a[mlimbs++], mdigits);
-		carry = limb_add(res+i, out, limb_bot);
+		carry = limb_adc(res+i, out, limb_bot, false);
 		assert(!carry);
 		out = limb_top;
 	}
 	if (res_digits > LIMB_DIGITS - mdigits) {
 		limb_bot = limb_sal(a[mlimbs++], LIMB_DIGITS - mdigits);
-		carry = limb_add(&out, out, limb_bot);
+		carry = limb_adc(&out, out, limb_bot, false);
 		assert(!carry);
 	}
 	res[i] = limb_low(out, res_digits);
@@ -327,7 +317,9 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
 	}
 	res[i++] = limb_splitl(&limb_top, a[0], n_digits);
 	for (; i < n_limbs+m; i++) {
-		carry = limb_add(res+i, limb_top, limb_splitl(&tmp, a[i-n_limbs], n_digits));
+		carry = limb_adc(res+i, limb_top,
+				 limb_splitl(&tmp, a[i-n_limbs], n_digits),
+				 false);
 		assert(!carry);
 		limb_top = tmp;
 	}
@@ -620,7 +612,8 @@ deccoeff_divmod(deccoeff *a, deccoeff *b) {
 	return Py_BuildValue("OO", (PyObject *)quot, (PyObject *)rem);
 }
 
-/* negation: succeeds only for a == 0;  for anything else, OverflowError is raised */
+/* negation: succeeds only for a == 0; for anything else, OverflowError is
+   raised */
 
 static deccoeff *
 deccoeff_negative(deccoeff *a)
@@ -734,7 +727,7 @@ deccoeff_subscript(deccoeff *a, PyObject *b)
 		slice = (PySliceObject *)b;
 		if (slice->step != Py_None) {
 			PyErr_SetString(PyExc_ValueError,
-					"step not supported in deccoeff slice");
+					"step unsupported in deccoeff slice");
 			return NULL;
 		}
 		if (slice->start == Py_None)
@@ -830,7 +823,8 @@ deccoeff_richcompare(PyObject *self, PyObject *other, int op)
 	return result;
 }
 
-/* Create a deccoeff from a Python long integer.  XXX should be a classmethod. */
+/* Create a deccoeff from a Python long integer.  XXX should be a
+   classmethod. */
 
 static deccoeff *
 deccoeff_from_PyLong(deccoeff *self, PyObject *o)
@@ -849,7 +843,7 @@ deccoeff_from_PyLong(deccoeff *self, PyObject *o)
 
 	if (a_size < 0) {
 		PyErr_SetString(PyExc_OverflowError,
-				"Can't convert negative integer to a deccoeff");
+				"Can't convert negative integer to deccoeff");
 		return NULL;
 	}
 
@@ -969,7 +963,8 @@ deccoeff_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 	return NULL;
 }
 
-/* number of digits of a deccoeff.  Raises ValueError if the deccoeff is zero. */
+/* number of digits of a deccoeff.  Raises ValueError if the deccoeff is
+   zero. */
 
 static Py_ssize_t
 deccoeff_length(deccoeff *v)
@@ -1093,7 +1088,8 @@ deccoeff_hash(deccoeff *v)
 }
 
 static PyMethodDef deccoeff_methods[] = {
-	{"from_int", (PyCFunction)deccoeff_from_PyLong, METH_O | METH_STATIC, "create from an integer"},
+	{"from_int", (PyCFunction)deccoeff_from_PyLong,
+	 METH_O | METH_STATIC, "create from an integer"},
 	{NULL, NULL}
 };
 
@@ -1142,44 +1138,44 @@ static PyNumberMethods deccoeff_as_number = {
 
 static PyTypeObject deccoeff_DeccoeffType = {
 	PyVarObject_HEAD_INIT(&PyType_Type, 0)
-	MODULE_NAME "." CLASS_NAME, /* tp_name */
-	sizeof(deccoeff), /* tp_basicsize */
-	sizeof(limb_t),            /* tp_itemsize */
-	deccoeff_dealloc,                            /* tp_dealloc */
-	0,                           /* tp_print */
-	0,                           /* tp_getattr */
-	0,                           /* tp_setattr */
-	0,                           /* tp_compare */
-	(reprfunc)deccoeff_repr,      /* tp_repr */
-	&deccoeff_as_number,          /* tp_as_number */
-	0,                           /* tp_as_sequence */
-	&deccoeff_as_mapping,                           /* tp_as_mapping */
-	(hashfunc)deccoeff_hash,      /* tp_hash */
-	0,                           /* tp_call */
-	(reprfunc)deccoeff_str,       /* tp_str */
-	0,     /* tp_getattro */
-	0,                           /* tp_setattro */
-	0,                           /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,   /* tp_flags */
-	"Decimal integers",                 /* tp_doc */
-	0,                           /* tp_traverse */
-	0,                           /* tp_clear */
-	(richcmpfunc)deccoeff_richcompare, /* tp_richcompare */
-	0,                           /* tp_weaklistoffset */
-	0,                           /* tp_iter */
-	0,                           /* tp_iternext */
-	deccoeff_methods,             /* tp_methods */
-	0,            /* tp_members */
-	0,             /* tp_getset */
-	0,                           /* tp_base */
-	0,                           /* tp_dict */
-	0,                           /* tp_descr_get */
-	0,                           /* tp_descr_set */
-	0,                           /* tp_dictoffset */
-	0,                           /* tp_init */
-	0,         /* tp_alloc */
-	deccoeff_new,                 /* tp_new */
-	PyObject_Del,                /* tp_free */
+	MODULE_NAME "." CLASS_NAME,             /* tp_name */
+	sizeof(deccoeff),                       /* tp_basicsize */
+	sizeof(limb_t),                         /* tp_itemsize */
+	deccoeff_dealloc,                       /* tp_dealloc */
+	0, /* tp_print */
+	0, /* tp_getattr */
+	0, /* tp_setattr */
+	0, /* tp_compare */
+	(reprfunc)deccoeff_repr,                /* tp_repr */
+	&deccoeff_as_number,                    /* tp_as_number */
+	0, /* tp_as_sequence */
+	&deccoeff_as_mapping,                   /* tp_as_mapping */
+	(hashfunc)deccoeff_hash,                /* tp_hash */
+	0, /* tp_call */
+	(reprfunc)deccoeff_str,                 /* tp_str */
+	0, /* tp_getattro */
+	0, /* tp_setattro */
+	0, /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,                     /* tp_flags */
+	"Decimal integers",                     /* tp_doc */
+	0, /* tp_traverse */
+	0, /* tp_clear */
+	(richcmpfunc)deccoeff_richcompare,      /* tp_richcompare */
+	0, /* tp_weaklistoffset */
+	0, /* tp_iter */
+	0, /* tp_iternext */
+	deccoeff_methods,                       /* tp_methods */
+	0, /* tp_members */
+	0, /* tp_getset */
+	0, /* tp_base */
+	0, /* tp_dict */
+	0, /* tp_descr_get */
+	0, /* tp_descr_set */
+	0, /* tp_dictoffset */
+	0, /* tp_init */
+	0, /* tp_alloc */
+	deccoeff_new,                           /* tp_new */
+	PyObject_Del,                           /* tp_free */
 };
 
 static PyMethodDef deccoeff_module_methods[] = {
@@ -1197,9 +1193,6 @@ static struct PyModuleDef _decimalmodule = {
 	NULL,
 	NULL
 };
-
-#define ADD_CONST(m, name)                                  \
-    if (PyModule_AddIntConstant(m, #name, name) < 0) return m
 
 PyMODINIT_FUNC
 PyInit__decimal(void)

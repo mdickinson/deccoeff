@@ -13,11 +13,6 @@ typedef int32_t limb_t;
 
 #define LIMB_DIGITS (9)
 
-/* number of limbs required to hold a PyLong digit */
-#define PYLONG_BASE_SIZE 1
-
-limb_t PYLONG_BASE_LIMBS[PYLONG_BASE_SIZE];
-
 /* definitions used for conversion from binary to decimal and back */
 
 /* digitpair is an integer type capable of holding a pair of PyLong
@@ -32,21 +27,12 @@ typedef int32_t digitpair;
 #define DIGIT_PAIR_BASE ((digitpair)1 << DIGIT_PAIR_SHIFT)
 #define DIGIT_PAIR_MASK (DIGIT_PAIR_BASE - 1)
 
-typedef int64_t digitpair_limb_t;
-
 /* arithmetic operations on limbs */
-/* add */
-bool limb_add(limb_t *, limb_t, limb_t);
+
 /* add with carry */
 bool limb_adc(limb_t *, limb_t, limb_t, bool);
 /* subtract with borrow */
 bool limb_sbb(limb_t *, limb_t, limb_t, bool);
-/* increment */
-bool limb_inc(limb_t *, limb_t);
-/* decrement */
-bool limb_dec(limb_t *, limb_t);
-/* increment if carry, else copy */
-bool limb_incc(limb_t *, limb_t, bool);
 /* multiply and add, with two addends */
 limb_t limb_fmaa(limb_t *, limb_t, limb_t, limb_t, limb_t);
 /* divide, returning quotient and remainder */
@@ -68,10 +54,27 @@ limb_t limb_split(limb_t *, limb_t, Py_ssize_t);
 limb_t limb_splitl(limb_t *, limb_t, Py_ssize_t);
 /* select low digits */
 limb_t limb_low(limb_t, Py_ssize_t);
-/* select high digits */
-limb_t limb_high(limb_t, Py_ssize_t);
 /* index of most significant nonzero digit */
 Py_ssize_t limb_dsr(limb_t);
+
+/* helpers for base conversion
+
+   given positive integers M and N, any x in range(0, M*N) can be
+   represented uniquely in the form
+
+     a*M + b,  0 <= a < N,  0 <= b < M
+
+   and also in the form
+
+     c*N + d, 0 <= c < M,  0 <= d < N.
+
+  The following two functions convert from one representation to the
+  other, in the particular case where M is 2**30 and N is LIMB_BASE.
+  These two operations are exactly the primitive operations needed for
+  binary<->decimal base conversion. */
+
+digitpair limb_digitpair_swap(limb_t *, limb_t, digitpair);
+limb_t digitpair_limb_swap(digitpair *, digitpair, limb_t);
 
 /* functions for conversion to and from strings */
 /* get a particular digit, as a character */
@@ -81,9 +84,6 @@ limb_t limb_setdigit(limb_t, Py_ssize_t, char);
 
 /* hash of a single limb;  used for making deccoeff hashable */
 unsigned long limb_hash(limb_t);
-
-digitpair limb_digitpair_swap(limb_t *, limb_t, digitpair);
-limb_t digitpair_limb_swap(digitpair *, digitpair, limb_t);
 
 Py_ssize_t limbsize_from_longsize(Py_ssize_t);
 Py_ssize_t longsize_from_limbsize(Py_ssize_t);
