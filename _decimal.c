@@ -1,19 +1,20 @@
 /*
- *  To do
- *  -----
  *  Replace limbs.c/limbs.h with an implementation involving strings (or
  *    structs), just to check that _decimal.c is properly independent of the
  *    exact implementation.
- *  Karatsuba multiplication
+ *  Search for XXXs!
+ */
+
+/*
+ *  To do
+ *  -----
+ *  Add type checks for binary arithmetic ops.
+ *  fast recursive algorithms for multiplication, division, base conversion
  *  docstrings
- *  make sure that mixed-type arithmetic raises a suitable exception
- *  fix ob_limbs[0]; it's not valid C89
- *  three-argument pow
- *  make slicing quicker if the shift is a multiple of LIMB_DIGITS
- *  check for overflow in slicing
- *  consider semantics for boolean operations: one possibility would
- *      be to consider any nonzero digit to be equivalent to 1
- *  implement powering algorithm based on base 10
+ *  fix some C99isms.  (ob_limbs[0] is invalid in C89.  stdint and stdbool aren't
+ *    available...)
+ *  provide fallback for systems that don't have a 64-bit integer type
+ *  implement two and three-argument pow
  *  write Deccoeff-specific tests
  *  export LIMB_DIGITS to Python
  *  make sure single-limb adds, subs, muls are as fast as possible
@@ -361,8 +362,10 @@ limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
 			high = DIGIT_PAIR(0, b[j]);
 		for (i=0; i < a_size; i++)
 			high = limb_digitpair_swap(a+i, a[i], high);
-		while (high != 0)
-			a[a_size++] = limb_from_digitpair(&high, high);
+		while (high != 0) {
+			high = limb_digitpair_swap(a+a_size, LIMB_ZERO, high);
+			a_size++;
+		}
 	}
 	return a_size;
 }
@@ -404,12 +407,8 @@ typedef struct {
   limb_t ob_limbs[0];
 } deccoeff;
 
-/* the following three constants are initialized during
-   module initialization.*/
+/* deccoeff_const_zero is initialized at module startup */
 static deccoeff *deccoeff_const_zero;
-static deccoeff *deccoeff_const_one;
-static deccoeff *deccoeff_PyLong_BASE;
-
 
 static PyTypeObject deccoeff_DeccoeffType;
 
@@ -454,32 +453,6 @@ deccoeff_zero(void)
 {
 	Py_INCREF(deccoeff_const_zero);
 	return deccoeff_const_zero;
-}
-
-/* create a deccoeff from a C unsigned long. */
-
-static deccoeff *
-deccoeff_from_ulong(unsigned long x)
-{
-	unsigned long xcopy;
-	Py_ssize_t z_size, i;
-	deccoeff *z;
-
-	/* wasteful method of figuring out number of limbs needed */
-	z_size = 0;
-	xcopy = x;
-	while(xcopy > 0) {
-		limb_from_ulong(&xcopy, xcopy);
-		z_size++;
-	}
-	/* allocate space */
-	z = _deccoeff_new(z_size);
-	if (z==NULL)
-		return NULL;
-	/* compute result */
-	for (i=0; i < z_size; i++)
-		z->ob_limbs[i] = limb_from_ulong(&x, x);
-	return z;
 }
 
 /***************************
@@ -857,7 +830,7 @@ deccoeff_richcompare(PyObject *self, PyObject *other, int op)
 	return result;
 }
 
-/* Create a deccoeff from a Python long integer */
+/* Create a deccoeff from a Python long integer.  XXX should be a classmethod. */
 
 static deccoeff *
 deccoeff_from_PyLong(deccoeff *self, PyObject *o)
@@ -936,7 +909,8 @@ deccoeff_long(deccoeff *a)
 	PyMem_Free(z);
 
 	/* check normalization */
-	assert (Py_SIZE(b) == 0 || Py_SIZE(b) > 0 && b->ob_digit[Py_SIZE(b)-1] != 0);
+	assert(Py_SIZE(b) == 0 ||
+	       (Py_SIZE(b) > 0 && b->ob_digit[Py_SIZE(b)-1] != 0));
 	return (PyObject *)b;
 }
 
@@ -1229,31 +1203,23 @@ static struct PyModuleDef _decimalmodule = {
 PyMODINIT_FUNC
 PyInit__decimal(void)
 {
-	PyObject *m = NULL;    /* a module object */
+	PyObject *m;
 
 	if (PyType_Ready(&deccoeff_DeccoeffType) < 0)
-		return m;
+		return NULL;
 
 	m = PyModule_Create(&_decimalmodule);
 	if (m == NULL)
-		return m;
+		return NULL;
 
 	Py_INCREF(&deccoeff_DeccoeffType);
 	PyModule_AddObject(m, CLASS_NAME, (PyObject *) &deccoeff_DeccoeffType);
 
-	deccoeff_const_zero = deccoeff_from_ulong((unsigned long)0);
+	deccoeff_const_zero = _deccoeff_new(0);
 	if (deccoeff_const_zero == NULL)
 		return NULL;
+	/* XXX do we need to deallocate deccoeff_const_zero somewhere at
+	   module cleanup time? */
 
-	deccoeff_const_one = deccoeff_from_ulong((unsigned long)1);
-	if (deccoeff_const_one == NULL)
-		return NULL;
-
-	deccoeff_PyLong_BASE = deccoeff_from_ulong((unsigned long)PyLong_BASE);
-	if (deccoeff_PyLong_BASE == NULL)
-		return NULL;
-
-	/* XXX do we need to deallocate deccoeff_zero and deccoeff_PyLong_BASE
-	   somewhere?   Do multiple imports leak references? */
 	return m;
 }
