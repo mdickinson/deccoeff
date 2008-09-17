@@ -329,10 +329,23 @@ limb_hash(limb_t x) {
 extern digitpair
 limb_digitpair_swap(limb_t *low, limb_t a, digitpair b)
 {
-	double_limb_t hilo;
-	hilo = ((double_limb_t)a << (2*PyLong_SHIFT)) + b;
+	digitpair_limb_t hilo;
+	hilo = ((digitpair_limb_t)a << (2*PyLong_SHIFT)) + b;
 	*low = (limb_t)(hilo%LIMB_BASE);
 	return (digitpair)(hilo/LIMB_BASE);
+}
+
+/* reverse of the above: given a digit pair a and limb b, write LIMB_BASE*a +
+   b in the form c*(2**30) + d, c a limb and d a digit pair.  Return c and put
+   d in *low. */
+
+extern limb_t
+digitpair_limb_swap(digitpair *low, digitpair a, limb_t b)
+{
+	digitpair_limb_t hilo;
+	hilo = (digitpair_limb_t)a * LIMB_BASE + b;
+	*low = (digitpair)(hilo & DIGIT_PAIR_MASK);
+	return (limb_t)(hilo >> DIGIT_PAIR_SHIFT);
 }
 
 /* given a nonnegative integer n representing a number of PyLong digits,
@@ -350,4 +363,14 @@ limbsize_from_longsize(Py_ssize_t n) {
 	else
 		/* n large; rewrite the above expression to avoid overflow */
 		return n/291*146 + (n%291*146 + 290)/291;
+}
+
+extern Py_ssize_t
+longsize_from_limbsize(Py_ssize_t n) {
+	/* here we need a rational upper bound for log(10^9)/log(2^30) = 
+	   0.9965784284...
+	   1 would work;  874/877 =
+	   0.9965792474...
+	   is slightly better.  Let's go with 1 and waste some space... */
+	return n;
 }

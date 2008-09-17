@@ -33,9 +33,15 @@ typedef int32_t limb_t;
 
 limb_t PYLONG_BASE_LIMBS[PYLONG_BASE_SIZE];
 
+/* definitions used for conversion from binary to decimal and back */
+
 /* digit pair is used to hold a pair of PyLong digits */
 typedef int32_t digitpair;
 #define DIGIT_PAIR(a, b) (((digitpair)(a) << PyLong_SHIFT) | (b))
+#define DIGIT_PAIR_BASE (PyLong_BASE*PyLong_BASE)
+#define DIGIT_PAIR_MASK (DIGIT_PAIR_BASE - 1)
+#define DIGIT_PAIR_SHIFT (2*PyLong_SHIFT)
+typedef int64_t digitpair_limb_t;
 
 /* add */
 bool limb_add(limb_t *, limb_t, limb_t);
@@ -80,5 +86,7 @@ bool limb_to_ulong(unsigned long *, unsigned long, limb_t);
 unsigned long limb_hash(limb_t);
 
 digitpair limb_digitpair_swap(limb_t *, limb_t, digitpair);
+limb_t digitpair_limb_swap(digitpair *, digitpair, limb_t);
 
 Py_ssize_t limbsize_from_longsize(Py_ssize_t);
+Py_ssize_t longsize_from_limbsize(Py_ssize_t);

@@ -362,10 +362,29 @@ limbs_from_longdigits(limbs a, digit *b, Py_ssize_t b_size)
 		for (i=0; i < a_size; i++)
 			high = limb_digitpair_swap(a+i, a[i], high);
 		while (high != 0)
-			a[i++] = limb_from_digitpair(&high, high);
-		a_size = i;
+			a[a_size++] = limb_from_digitpair(&high, high);
 	}
 	return a_size;
+}
+
+/* Base conversion, from base LIMB_BASE to base 2**30. */
+
+static Py_ssize_t
+limbs_to_longdigits(digitpair *b, limbs a, Py_ssize_t a_size)
+{
+	Py_ssize_t i, j, b_size;
+	limb_t high;
+	b_size = 0;
+	for (i = a_size-1; i >= 0; i--) {
+		high = a[i];
+		for (j = 0; j < b_size; j++)
+			high = digitpair_limb_swap(b+j, b[j], high);
+		while (!limb_eq(high, LIMB_ZERO)) {
+			high = digitpair_limb_swap(b+b_size, 0, high);
+			b_size++;
+		}
+	}
+	return b_size;
 }
 
 /**************************
@@ -860,8 +879,6 @@ deccoeff_from_PyLong(deccoeff *self, PyObject *o)
 				"Can't convert negative integer to a deccoeff");
 		return NULL;
 	}
-	else if (a_size == 0)
-		return deccoeff_zero();
 
 	z_size = limbsize_from_longsize(a_size);
 	if (z_size >= 2*MAX_DIGITS)
@@ -879,9 +896,50 @@ deccoeff_from_PyLong(deccoeff *self, PyObject *o)
 	return NULL;
 }
 
-/* we also need (eventually) a routine to convert a deccoeff back into a
-   Python long.  I'm resisting writing this for the moment, since the lack of
-   it provides incentive to keep all computations in decimal. */
+static PyObject *
+deccoeff_long(deccoeff *a)
+{
+	Py_ssize_t a_size, z_size, b_size, i, j;
+	digitpair *z;
+	PyLongObject *b;
+
+	a_size = Py_SIZE(a);
+
+	/* allocate space for result */
+	z_size = longsize_from_limbsize(a_size);
+	z = (digitpair *)PyMem_Malloc(z_size * sizeof(digitpair));
+	if (z == NULL)
+		return PyErr_NoMemory();
+
+	/* do the conversion, and get actual size */
+	z_size = limbs_to_longdigits(z, a->ob_limbs, a_size);
+
+	/* create a new PyLong to hold the result (using undocumented parts of
+	   the API---naughty!) */
+	b_size = 2*z_size;
+	if (z_size > 0 && z[z_size-1] < PyLong_BASE)
+		b_size--;
+	b = _PyLong_New(b_size);
+	if (b == NULL) {
+		PyMem_Free(z);
+		return NULL;
+	}
+
+	/* copy pairs of digits */
+	for (i=0, j=0; i < b_size/2; i++, j+=2) {
+		b->ob_digit[j] = (digit)(z[i] & PyLong_MASK);
+		b->ob_digit[j+1] = (digit)(z[i] >> PyLong_SHIFT);
+	}
+	if (b_size % 2 == 1)
+		b->ob_digit[j] = (digit)(z[i] & PyLong_MASK);
+
+	PyMem_Free(z);
+
+	/* check normalization */
+	assert (Py_SIZE(b) == 0 || Py_SIZE(b) > 0 && b->ob_digit[Py_SIZE(b)-1] != 0);
+	return (PyObject *)b;
+}
+
 
 static PyObject *
 deccoeff_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
@@ -1087,8 +1145,8 @@ static PyNumberMethods deccoeff_as_number = {
 	0, /*nb_and*/
 	0, /*nb_xor*/
 	0, /*nb_or*/
-	0, /*nb_int*/
-	0, /*nb_long*/
+	(unaryfunc) deccoeff_long,              /*nb_int*/
+	(unaryfunc) deccoeff_long,              /*nb_long*/
 	0, /*nb_float*/
 	0, /*nb_inplace_add*/
 	0, /*nb_inplace_subtract*/
@@ -1104,7 +1162,7 @@ static PyNumberMethods deccoeff_as_number = {
 	0, /*nb_true_divide*/
 	0, /*nb_inplace_floor_divide*/
 	0, /*nb_inplace_true_divide*/
-	0, /*nb_index*/
+	(unaryfunc) deccoeff_long,              /*nb_index*/
 };
 
 static PyTypeObject deccoeff_DeccoeffType = {
