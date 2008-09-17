@@ -294,13 +294,13 @@ limb_setdigit(limb_t x, Py_ssize_t n, char d) {
 extern limb_t
 limb_from_ulong(unsigned long *quotient, unsigned long x) {
 	*quotient = x / (LIMB_BASE);
-	return (limb_t)(x % LIMB_MAX);
+	return (limb_t)(x % LIMB_BASE);
 }
 
 extern limb_t
 limb_from_digitpair(digitpair *quotient, digitpair x) {
 	*quotient = x / (LIMB_BASE);
-	return (limb_t)(x % LIMB_MAX);
+	return (limb_t)(x % LIMB_BASE);
 }
 
 /* acc_out = acc_in * LIMB_BASE + limb. return 0 on success, 1 on overflow */
