@@ -1,3 +1,6 @@
+/* make deccoeff_checksize do a Py_DECREF and set error */
+/* Check for overflow in longsize_to_limbsize, ... */
+
 /*
  * Module implementing arbitrary-precision natural number arithmetic
  * in a decimal base.  As the name 'deccoeff' suggests, these numbers
@@ -10,7 +13,6 @@
 /*
  *  To do
  *  -----
- *  Make from_int function a classmethod.
  *  Add type checks for binary arithmetic ops.
  *  fast recursive algorithms for multiplication, division, base conversion
  *  docstrings
@@ -325,6 +327,39 @@ limbs_lshift(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
 	res[i] = limb_top;
 }
 
+/* Conversion to and from strings */
+
+/* Convert a character array to an array of limbs.  Returns false on success,
+   true if any of the characters was not a valid digit; in the latter case,
+   the contents of a are undefined. a should provide ceiling(slen /
+   LIMB_DIGITS) limbs. */
+
+static bool
+limbs_from_string(limbs a, const char *s, Py_ssize_t s_len)
+{
+	Py_ssize_t i, k, digits_in_limb;
+	limb_t acc;
+	char c;
+
+	k = (s_len+LIMB_DIGITS-1) / LIMB_DIGITS;
+	digits_in_limb = (s_len+LIMB_DIGITS-1) % LIMB_DIGITS + 1;
+	acc = LIMB_ZERO;
+	for (i = 0; i < s_len; i++) {
+		c = s[i];
+		if (c < '0' || c > '9')
+			return true;
+		acc = limb_shift_digit_in(acc, (int)(c - '0'));
+		digits_in_limb--;
+		if (digits_in_limb == 0) {
+			digits_in_limb = LIMB_DIGITS;
+			a[--k] = acc;
+			acc = LIMB_ZERO;
+		}
+	}
+	assert(digits_in_limb = LIMB_DIGITS);
+	return false;
+}
+
 /* Base conversion, from base 2**15 to base LIMB_BASE.
 
    Convert an array of (base 2**15) digits for a Python long to an
@@ -343,18 +378,14 @@ static Py_ssize_t
 limbs_from_longdigits(limb_t *a, const digit *b, Py_ssize_t b_size)
 {
 	Py_ssize_t i, j, a_size;
-	digitpair high;
+	digit high;
 	a_size = 0;
-	/* we process one pair of PyLong digits at a time */
-	for (j = (b_size-1)&(~1); j >= 0; j-=2) {
-		if (j+1 < b_size)
-			high = DIGIT_PAIR(b[j+1], b[j]);
-		else
-			high = DIGIT_PAIR(0, b[j]);
+	for (j = b_size-1; j >= 0; j--) {
+		high = b[j];
 		for (i=0; i < a_size; i++)
-			high = limb_digitpair_swap(a+i, a[i], high);
+			high = limb_digit_swap(a+i, a[i], high);
 		while (high != 0) {
-			high = limb_digitpair_swap(a+a_size, LIMB_ZERO, high);
+			high = limb_digit_swap(a+a_size, LIMB_ZERO, high);
 			a_size++;
 		}
 	}
@@ -364,7 +395,7 @@ limbs_from_longdigits(limb_t *a, const digit *b, Py_ssize_t b_size)
 /* base conversion, from base LIMB_BASE to base 2**30. */
 
 static Py_ssize_t
-limbs_to_longdigits(digitpair *b, const limb_t *a, Py_ssize_t a_size)
+limbs_to_longdigits(digit *b, const limb_t *a, Py_ssize_t a_size)
 {
 	Py_ssize_t i, j, b_size;
 	limb_t high;
@@ -372,9 +403,9 @@ limbs_to_longdigits(digitpair *b, const limb_t *a, Py_ssize_t a_size)
 	for (i = a_size-1; i >= 0; i--) {
 		high = a[i];
 		for (j = 0; j < b_size; j++)
-			high = digitpair_limb_swap(b+j, b[j], high);
+			high = digit_limb_swap(b+j, b[j], high);
 		while (!limb_eq(high, LIMB_ZERO)) {
-			high = digitpair_limb_swap(b+b_size, 0, high);
+			high = digit_limb_swap(b+b_size, 0, high);
 			b_size++;
 		}
 	}
@@ -397,9 +428,6 @@ typedef struct {
   PyObject_VAR_HEAD
   limb_t ob_limbs[0];
 } deccoeff;
-
-/* deccoeff_const_zero is initialized at module startup */
-static deccoeff *deccoeff_const_zero;
 
 static PyTypeObject deccoeff_DeccoeffType;
 
@@ -442,9 +470,38 @@ deccoeff_checksize(deccoeff *v)
 static deccoeff *
 deccoeff_zero(void)
 {
-	Py_INCREF(deccoeff_const_zero);
-	return deccoeff_const_zero;
+	return _deccoeff_new(0);
 }
+
+static deccoeff *
+deccoeff_from_string_and_size(const char *s, Py_ssize_t s_len) {
+	Py_ssize_t z_size;
+	deccoeff *z;
+	bool invalid;
+
+	if (s_len > MAX_DIGITS) {
+		PyErr_SetString(PyExc_OverflowError,
+				"too many digits");
+		return NULL;
+	}
+
+	z_size = (s_len + LIMB_DIGITS - 1) / LIMB_DIGITS;
+	z = _deccoeff_new(z_size);
+	if (z == NULL)
+		return NULL;
+
+	invalid = limbs_from_string(z->ob_limbs, s, s_len);
+	if (invalid) {
+		Py_DECREF(z);
+		PyErr_SetString(PyExc_ValueError,
+				"nondigit character in input");
+		return NULL;
+	}
+	return deccoeff_normalize(z);
+}
+
+
+
 
 /***************************
  * Arithmetic on deccoeffs *
@@ -822,167 +879,101 @@ deccoeff_richcompare(PyObject *self, PyObject *other, int op)
 	return result;
 }
 
-/* Create a deccoeff from a Python long integer.  XXX should be a
-   classmethod. */
+/* Create a deccoeff from a Python integer. */
 
 static deccoeff *
-deccoeff_from_PyLong(deccoeff *self, PyObject *o)
+deccoeff_from_PyLong(PyLongObject *a)
 {
-	Py_ssize_t a_size, z_size;
-	PyLongObject *a;
-	deccoeff * z;
+	Py_ssize_t a_size;
+	deccoeff *z;
 
-	if (!PyLong_Check(o)) {
-		PyErr_SetString(PyExc_TypeError,
-				"argument must be a long");
-		return NULL;
-	}
-	a = (PyLongObject *)o;
 	a_size = Py_SIZE(a);
-
 	if (a_size < 0) {
 		PyErr_SetString(PyExc_OverflowError,
 				"Can't convert negative integer to deccoeff");
 		return NULL;
 	}
 
-	z_size = limbsize_from_longsize(a_size);
-	if (z_size >= 2*MAX_DIGITS)
-		goto Overflow;
-	z = _deccoeff_new(z_size);
+	z = _deccoeff_new(limbsize_from_longsize(a_size));
 	if (z==NULL)
 		return NULL;
 	Py_SIZE(z) = limbs_from_longdigits(z->ob_limbs, a->ob_digit, a_size);
 	if (deccoeff_checksize(z))
 		return z;
 	Py_DECREF(z);
-  Overflow:
 	PyErr_SetString(PyExc_OverflowError,
 			"result is too large to represent");
 	return NULL;
 }
 
-static PyObject *
+static PyLongObject *
 deccoeff_long(deccoeff *a)
 {
-	Py_ssize_t a_size, z_size, b_size, i, j;
-	digitpair *z;
-	PyLongObject *b;
+	Py_ssize_t a_size;
+	PyLongObject *z;
 
 	a_size = Py_SIZE(a);
-
-	/* allocate space for result */
-	z_size = longsize_from_limbsize(a_size);
-	z = (digitpair *)PyMem_Malloc(z_size * sizeof(digitpair));
+	z = _PyLong_New(longsize_from_limbsize(a_size));
 	if (z == NULL)
-		return PyErr_NoMemory();
-
-	/* do the conversion, and get actual size */
-	z_size = limbs_to_longdigits(z, a->ob_limbs, a_size);
-
-	/* create a new PyLong to hold the result (using undocumented parts of
-	   the API---naughty!) */
-	b_size = 2*z_size;
-	if (z_size > 0 && z[z_size-1] < PyLong_BASE)
-		b_size--;
-	b = _PyLong_New(b_size);
-	if (b == NULL) {
-		PyMem_Free(z);
 		return NULL;
-	}
-
-	/* copy pairs of digits */
-	for (i=0, j=0; i < b_size/2; i++, j+=2) {
-		b->ob_digit[j] = (digit)(z[i] & PyLong_MASK);
-		b->ob_digit[j+1] = (digit)(z[i] >> PyLong_SHIFT);
-	}
-	if (b_size % 2 == 1)
-		b->ob_digit[j] = (digit)(z[i] & PyLong_MASK);
-
-	PyMem_Free(z);
-
-	/* check normalization */
-	assert(Py_SIZE(b) == 0 ||
-	       (Py_SIZE(b) > 0 && b->ob_digit[Py_SIZE(b)-1] != 0));
-
-	return (PyObject *)b;
+	Py_SIZE(z) = limbs_to_longdigits(z->ob_digit, a->ob_limbs, a_size);
+	return z;
 }
-
 
 static PyObject *
 deccoeff_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-	const char* s;
-	char *start, *end;
-	int lens;
-	int nlimbs, digits_in_limb;
-	limb_t accum, *limb_pointer;
-	char c;
-	deccoeff *new;
+	PyObject *x, *n, *result;
+	static char *kwlist[] = {"x", 0};
+	char *s;
+	Py_ssize_t s_len;
 
-	if (!PyArg_ParseTuple(args, "s#:" CLASS_NAME, &s, &lens))
+	/* not allowing subtypes */
+	assert(type == &deccoeff_DeccoeffType);
+	x = NULL;
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:" CLASS_NAME,
+					 kwlist, &x))
 		return NULL;
 
-	if (lens > MAX_DIGITS) {
-		PyErr_SetString(PyExc_OverflowError,
-				"too many digits");
+	if (x == NULL)
+		return (PyObject *)deccoeff_zero();
+	else if (PyUnicode_Check(x)) {
+		s = _PyUnicode_AsStringAndSize(x, &s_len);
+		if (s == NULL)
+			return NULL;
+		return (PyObject *)deccoeff_from_string_and_size(s, s_len);
+	}
+	else if (PyIndex_Check(x)) {
+		n = PyNumber_Index(x);
+		if (n == NULL)
+			return NULL;
+		result = (PyObject *)deccoeff_from_PyLong((PyLongObject *)n);
+		Py_DECREF(n);
+		return result;
+	}
+	else if (PyObject_TypeCheck(x, &deccoeff_DeccoeffType)) {
+		/* we're not allowing subtypes, so it should
+		   be safe just to return x itself here. */
+		Py_INCREF(x);
+		return x;
+	}
+	else {
+		PyErr_SetString(PyExc_TypeError,
+				"unable to create a deccoeff from this type");
 		return NULL;
 	}
-
-	nlimbs = (lens+LIMB_DIGITS-1)/LIMB_DIGITS;
-	digits_in_limb = (lens+LIMB_DIGITS-1) % LIMB_DIGITS + 1;
-
-	new = _deccoeff_new(nlimbs);
-	if (new == NULL)
-		return NULL;
-
-	/* iterate through digits, from most significant to least */
-	start = (char *)s;
-	end = (char *)s + lens;
-	accum = LIMB_ZERO;
-	limb_pointer = new -> ob_limbs + nlimbs - 1;
-	while (start < end) {
-		c = *start++;
-		if (!(c >= '0') || !(c <= '9')) goto Error;
-		accum = limb_sal(accum, 1); /* shift left 1 place */
-		accum = limb_setdigit(accum, 0, c);
-		digits_in_limb--;
-		if (digits_in_limb == 0) {
-			digits_in_limb = LIMB_DIGITS;
-			*limb_pointer-- = accum;
-			accum = LIMB_ZERO;
-		}
-	}
-	return (PyObject *)(deccoeff_normalize(new));
-
-  Error:
-	PyErr_Format(PyExc_ValueError,
-		     "invalid literal for deccoeff(): %s", s);
-	Py_DECREF(new);
-	return NULL;
 }
 
-/* number of digits of a deccoeff.  Raises ValueError if the deccoeff is
-   zero. */
+
+/* number of digits of a deccoeff, or 0 if that deccoeff is zero. */
 
 static Py_ssize_t
 deccoeff_length(deccoeff *v)
 {
 	Py_ssize_t v_size;
-
 	v_size = Py_SIZE(v);
-	/* for safety, we raise a ValueError for 0; there are too many
-	   situations where returning 0 might turn out to be wrong; 0 almost
-	   always needs special treatment anyway.
-
-	   Another way to think of this function is as 1 more than the floor
-	   of log_10(v); this again is undefined for v = 0, justifying the
-	   ValueError. */
-	if (v_size == 0) {
-		PyErr_SetString(PyExc_ValueError,
-				"refusing to find length of 0");
-		return -1;
-	}
+	if (v_size == 0)
+		return 0;
 	return limb_dsr(v->ob_limbs[v_size-1]) + (v_size-1) * LIMB_DIGITS;
 }
 
@@ -1021,17 +1012,16 @@ deccoeff_str(deccoeff *v)
 	last_limb = limb_pointer + nlimbs - 1;
 	while (limb_pointer < last_limb) {
 		limb_value = *limb_pointer++;
-		for (i=0; i < LIMB_DIGITS; i++) {
-			*--p = limb_getdigit(limb_value, 0);
-			limb_value = limb_sar(limb_value, 1);
-		}
+		for (i=0; i < LIMB_DIGITS; i++)
+			*--p = '0' + limb_shift_digit_out(
+				&limb_value, limb_value);
 	}
 	/* most significant limb_t */
 	limb_value = *limb_pointer;
 	assert(!limb_eq(limb_value, LIMB_ZERO));
 	while (!limb_eq(limb_value, LIMB_ZERO)) {
-		*--p = limb_getdigit(limb_value, 0);
-		limb_value = limb_sar(limb_value, 1);
+		*--p = '0' + limb_shift_digit_out(
+			&limb_value, limb_value);
 	}
 	return str;
 }
@@ -1087,8 +1077,6 @@ deccoeff_hash(deccoeff *v)
 }
 
 static PyMethodDef deccoeff_methods[] = {
-	{"from_int", (PyCFunction)deccoeff_from_PyLong,
-	 METH_O | METH_STATIC, "create from an integer"},
 	{NULL, NULL}
 };
 
@@ -1208,8 +1196,5 @@ PyInit__decimal(void)
 	Py_INCREF(&deccoeff_DeccoeffType);
 	PyModule_AddObject(m, CLASS_NAME, (PyObject *) &deccoeff_DeccoeffType);
 
-	deccoeff_const_zero = _deccoeff_new(0);
-	if (deccoeff_const_zero == NULL)
-		return NULL;
 	return m;
 }

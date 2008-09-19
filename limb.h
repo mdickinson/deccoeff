@@ -15,18 +15,6 @@ typedef int32_t limb_t;
 
 /* definitions used for conversion from binary to decimal and back */
 
-/* digitpair is an integer type capable of holding a pair of PyLong
-   digits (i.e., it should hold any integer in the range [0, 2**30).
-   digitpair_limb_t holds any integer in the range [0,
-   2**30*LIMB_BASE); these types are used for decimal<->binary base
-   conversions. */
-
-typedef int32_t digitpair;
-#define DIGIT_PAIR(a, b) (((digitpair)(a) << PyLong_SHIFT) | (b))
-#define DIGIT_PAIR_SHIFT (2*PyLong_SHIFT)
-#define DIGIT_PAIR_BASE ((digitpair)1 << DIGIT_PAIR_SHIFT)
-#define DIGIT_PAIR_MASK (DIGIT_PAIR_BASE - 1)
-
 /* arithmetic operations on limbs */
 
 /* add with carry */
@@ -73,14 +61,12 @@ Py_ssize_t limb_dsr(limb_t);
   These two operations are exactly the primitive operations needed for
   binary<->decimal base conversion. */
 
-digitpair limb_digitpair_swap(limb_t *, limb_t, digitpair);
-limb_t digitpair_limb_swap(digitpair *, digitpair, limb_t);
+digit limb_digit_swap(limb_t *, limb_t, digit);
+limb_t digit_limb_swap(digit *, digit, limb_t);
 
 /* functions for conversion to and from strings */
-/* get a particular digit, as a character */
-char limb_getdigit(limb_t, Py_ssize_t);
-/* set a particular digit */
-limb_t limb_setdigit(limb_t, Py_ssize_t, char);
+limb_t limb_shift_digit_in(limb_t, int);
+int limb_shift_digit_out(limb_t *, limb_t);
 
 /* hash of a single limb;  used for making deccoeff hashable */
 unsigned long limb_hash(limb_t);

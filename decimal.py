@@ -632,7 +632,7 @@ class Decimal(object):
                 self._sign = 0
             else:
                 self._sign = 1
-            self._int = Deccoeff.from_int(abs(value))
+            self._int = Deccoeff(abs(value))
             self._exp = 0
             self._is_special = False
             return self

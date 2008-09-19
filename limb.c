@@ -96,18 +96,6 @@ limb_eq(limb_t a, limb_t b)
 	return a == b;
 }
 
-extern bool
-limb_le(limb_t a, limb_t b)
-{
-	return a <= b;
-}
-
-extern bool
-limb_lt(limb_t a, limb_t b)
-{
-	return a < b;
-}
-
 /* multiply and add with two addends; this is useful for long
    multiplication.  Store the low part of the result in *low, and return
    the high part. */
@@ -194,35 +182,36 @@ limb_low(limb_t x, Py_ssize_t n) {
 	return x % powers_of_ten[n];
 }
 
-extern char
-limb_getdigit(limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n < LIMB_DIGITS))
-		limb_error("invalid digit position in limb_getdigit");
-	return '0' + (char)((x / powers_of_ten[n]) % 10);
-}
-
 extern limb_t
-limb_setdigit(limb_t x, Py_ssize_t n, char d) {
-	if (!(0 <= n && n < LIMB_DIGITS))
-		limb_error("invalid digit position in limb_setdigit");
-	if (!('0' <= d && d <= '9'))
-		limb_error("invalid digit in limb_setdigit");
-	return x + powers_of_ten[n] * (limb_t)(d - limb_getdigit(x, n));
+limb_shift_digit_in(limb_t x, int i) {
+	if (!(0 <= i && i <= 9))
+		limb_error("invalid digit in limb_shift_digit_in");
+	if (x >= LIMB_BASE/10)
+		x %= LIMB_BASE/10;
+	return x * 10 + (limb_t)i;
 }
 
-typedef int64_t digitpair_limb_t;
+extern int
+limb_shift_digit_out(limb_t *x, limb_t a) {
+	int result;
+	result = a % 10;
+	*x = a / 10;
+	return result;
+}
+
+typedef int64_t digit_limb_t;
 
 /* given limb a and digit pair b, write a*2**30 + b in the form
    c*LIMB_BASE + d, with c a digit pair and d a limb.  Return c and
    put d in *low. */
 
-extern digitpair
-limb_digitpair_swap(limb_t *low, limb_t a, digitpair b)
+extern digit
+limb_digit_swap(limb_t *low, limb_t a, digit b)
 {
-	digitpair_limb_t hilo;
-	hilo = ((digitpair_limb_t)a << DIGIT_PAIR_SHIFT) + b;
+	digit_limb_t hilo;
+	hilo = ((digit_limb_t)a << PyLong_SHIFT) + b;
 	*low = (limb_t)(hilo%LIMB_BASE);
-	return (digitpair)(hilo/LIMB_BASE);
+	return (digit)(hilo/LIMB_BASE);
 }
 
 /* reverse of the above: given a digit pair a and limb b, write LIMB_BASE*a +
@@ -230,12 +219,12 @@ limb_digitpair_swap(limb_t *low, limb_t a, digitpair b)
    d in *low. */
 
 extern limb_t
-digitpair_limb_swap(digitpair *low, digitpair a, limb_t b)
+digit_limb_swap(digit *low, digit a, limb_t b)
 {
-	digitpair_limb_t hilo;
-	hilo = (digitpair_limb_t)a * LIMB_BASE + b;
-	*low = (digitpair)(hilo & DIGIT_PAIR_MASK);
-	return (limb_t)(hilo >> DIGIT_PAIR_SHIFT);
+	digit_limb_t hilo;
+	hilo = (digit_limb_t)a * LIMB_BASE + b;
+	*low = (digit)(hilo & PyLong_MASK);
+	return (limb_t)(hilo >> PyLong_SHIFT);
 }
 
 /* given a nonnegative integer n representing a number of PyLong digits,
@@ -257,15 +246,37 @@ limbsize_from_longsize(Py_ssize_t n) {
 
 extern Py_ssize_t
 longsize_from_limbsize(Py_ssize_t n) {
-	/* here we need a rational upper bound for log(10^9)/log(2^30) = 
+	/* here we need a rational upper bound for log(10^9)/log(2^15) = 
 	   0.9965784284...
 	   1 would work;  874/877 =
 	   0.9965792474...
 	   is slightly better.  Let's go with 1 and waste some space... */
-	return n;
+	/* XXX check for overflow! and caller should check for -1! */
+	return 2*n;
 }
 
 extern unsigned long
 limb_hash(limb_t x) {
 	return (unsigned long)x;
 }
+
+/* derived operations */
+
+/* a < b iff a - b overflows */
+
+extern bool
+limb_lt(limb_t a, limb_t b)
+{
+	limb_t dummy;
+	return limb_sbb(&dummy, a, b, false);
+}
+
+/* a <= b iff a - b - 1 overflows */
+
+extern bool
+limb_le(limb_t a, limb_t b)
+{
+	limb_t dummy;
+	return limb_sbb(&dummy, a, b, true);
+}
+
