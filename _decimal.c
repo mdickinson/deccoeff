@@ -1,4 +1,3 @@
-/* make deccoeff_checksize do a Py_DECREF and set error */
 /* Check for overflow in longsize_to_limbsize, ... */
 
 /*
@@ -452,17 +451,35 @@ deccoeff_normalize(deccoeff *v)
 	return v;
 }
 
-/* return nonzero value iff v has at most MAX_DIGITS digits. */
+/* returns its argument (with reference count unaffected) if the argument has
+   MAX_DIGITS or fewer digits.  Otherwise it decrements the reference count
+   for its argument, sets OverflowError, and returns NULL. */
 
-static int
+static deccoeff *
 deccoeff_checksize(deccoeff *v)
 {
-	Py_ssize_t v_size;
+	Py_ssize_t v_size, topdigits;
+	bool small;
 	v_size = Py_SIZE(v);
-	return (v_size < (MAX_DIGITS-1)/LIMB_DIGITS+1 ||
-		(v_size == (MAX_DIGITS-1)/LIMB_DIGITS+1 &&
-		 limb_dsr(v->ob_limbs[v_size-1]) <=
-		 (MAX_DIGITS-1)%LIMB_DIGITS+1));
+
+	/* something with MAX_DIGITS digits has exactly
+	   (MAX_DIGITS-1)/LIMB_DIGITS+1 limbs;  its top limb has
+	   (MAX_DIGITS-1)%LIMB_DIGITS+1 digits */
+	if (v_size < (MAX_DIGITS-1)/LIMB_DIGITS+1)
+		small = true;
+	else if (v_size == (MAX_DIGITS-1)/LIMB_DIGITS+1) {
+		topdigits = limb_dsr(v->ob_limbs[v_size-1]);
+		small = topdigits <= (MAX_DIGITS-1)%LIMB_DIGITS+1;
+	}
+	else
+		small = false;
+
+	if (small)
+		return v;
+	Py_DECREF(v);
+	PyErr_SetString(PyExc_OverflowError,
+			"Deccoeff instance has too many digits");
+	return NULL;
 }
 
 /* return a new reference to the zero deccoeff */
@@ -534,13 +551,7 @@ deccoeff_add(deccoeff *a, deccoeff *b)
 	carry = limbs_incc(z->ob_limbs+b_size, a->ob_limbs+b_size,
 		   a_size-b_size, carry);
 	z->ob_limbs[a_size] = carry ? LIMB_ONE : LIMB_ZERO;
-	z = deccoeff_normalize(z);
-	if (deccoeff_checksize(z))
-		return z;
-	Py_DECREF(z);
-	PyErr_SetString(PyExc_OverflowError,
-			"Too many digits in sum");
-	return NULL;
+	return deccoeff_checksize(deccoeff_normalize(z));
 }
 
 /* subtraction */
@@ -582,12 +593,7 @@ deccoeff_multiply(deccoeff *a, deccoeff *b)
 	if (z == NULL)
 		return NULL;
 	limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
-	z = deccoeff_normalize(z);
-	if (deccoeff_checksize(z))
-		return z;
-	Py_DECREF(z);
-	PyErr_SetString(PyExc_OverflowError, "product has too many digits");
-	return NULL;
+	return deccoeff_checksize(deccoeff_normalize(z));
 }
 
 /* division of a by b: returns quotient and puts remainder in *r.  On
@@ -719,20 +725,16 @@ deccoeff_lshift(deccoeff *a, PyObject *b) {
 	a_size = Py_SIZE(a);
 	if (a_size == 0)
 		return deccoeff_zero();
-	if (n >= MAX_DIGITS)
-		goto Overflow;
+	if (n >= MAX_DIGITS) {
+		PyErr_SetString(PyExc_OverflowError,
+				"Deccoeff instance has too many digits");
+		return NULL;
+	}
 	z = _deccoeff_new(a_size + (n+LIMB_DIGITS-1) / LIMB_DIGITS);
 	if (z==NULL)
 		return NULL;
 	limbs_lshift(z->ob_limbs, a->ob_limbs, a_size, n);
-	z = deccoeff_normalize(z);
-	if (deccoeff_checksize(z))
-		return z;
-	Py_DECREF(z);
-  Overflow:
-	PyErr_SetString(PyExc_OverflowError,
-			"too many digits in result");
-	return NULL;
+	return deccoeff_checksize(deccoeff_normalize(z));
 }
 
 /* right shift; second operand is a Python integer, not a deccoeff.
@@ -898,12 +900,7 @@ deccoeff_from_PyLong(PyLongObject *a)
 	if (z==NULL)
 		return NULL;
 	Py_SIZE(z) = limbs_from_longdigits(z->ob_limbs, a->ob_digit, a_size);
-	if (deccoeff_checksize(z))
-		return z;
-	Py_DECREF(z);
-	PyErr_SetString(PyExc_OverflowError,
-			"result is too large to represent");
-	return NULL;
+	return deccoeff_checksize(z);
 }
 
 static PyLongObject *
