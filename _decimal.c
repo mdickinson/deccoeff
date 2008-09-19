@@ -12,14 +12,15 @@
 /*
  *  To do
  *  -----
- *  Add type checks for binary arithmetic ops.
+ *  write Deccoeff-specific tests
+ *  improve documentation
+ *  add type checks for binary arithmetic ops.
  *  fast recursive algorithms for multiplication, division, base conversion
  *  docstrings
  *  fix some C99isms.  (ob_limbs[0] is invalid in C89.  stdint and
  *      stdbool aren't available...)
  *  provide fallback for systems that don't have a 64-bit integer type
  *  implement two and three-argument pow
- *  write Deccoeff-specific tests
  *  export LIMB_DIGITS to Python
  */
 
