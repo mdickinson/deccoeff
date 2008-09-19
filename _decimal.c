@@ -59,13 +59,12 @@
    provided for their results. */
 
 typedef limb_t *limbs;
-typedef const limb_t *const_limbs;
 
 /* increment n-limb number a if carry is true, else just copy it; gives n-limb
    result and returns a carry */
 
 static bool
-limbs_incc(limbs res, const_limbs a, Py_ssize_t a_size, bool carry)
+limbs_incc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
 {
 	Py_ssize_t i;
 	for (i=0; i < a_size; i++)
@@ -77,7 +76,7 @@ limbs_incc(limbs res, const_limbs a, Py_ssize_t a_size, bool carry)
    result and returns a carry */
 
 static bool
-limbs_decc(limbs res, const_limbs a, Py_ssize_t a_size, bool carry)
+limbs_decc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
 {
 	Py_ssize_t i;
 	for (i=0; i < a_size; i++)
@@ -88,7 +87,7 @@ limbs_decc(limbs res, const_limbs a, Py_ssize_t a_size, bool carry)
 /* add n-limb numbers a and b, producing an n-limb result res and a carry */
 
 static bool
-limbs_add(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
+limbs_add(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n)
 {
 	Py_ssize_t i;
 	bool carry;
@@ -102,7 +101,7 @@ limbs_add(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
    carry */
 
 static bool
-limbs_sub(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
+limbs_sub(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n)
 {
 	Py_ssize_t i;
 	bool carry;
@@ -116,7 +115,7 @@ limbs_sub(limbs res, const_limbs a, const_limbs b, Py_ssize_t n)
    an extra high limb (returned separately). */
 
 static limb_t
-limbs_mul1(limbs res, const_limbs a, Py_ssize_t a_size, limb_t x)
+limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
 {
 	limb_t high;
 	Py_ssize_t i;
@@ -129,8 +128,8 @@ limbs_mul1(limbs res, const_limbs a, Py_ssize_t a_size, limb_t x)
 /* multiply m-limb a by n-limb b, getting m+n-limb result res */
 
 static void
-limbs_mul(limbs res, const_limbs a, Py_ssize_t a_size,
-	  const_limbs b, Py_ssize_t b_size)
+limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+	  const limb_t *b, Py_ssize_t b_size)
 {
 	Py_ssize_t i, j;
 	limb_t hiword;
@@ -149,7 +148,7 @@ limbs_mul(limbs res, const_limbs a, Py_ssize_t a_size,
    and returning the (single limb) remainder */
 
 static limb_t
-limbs_div1(limbs res, const_limbs a, Py_ssize_t m, limb_t x)
+limbs_div1(limb_t *res, const limb_t *a, Py_ssize_t m, limb_t x)
 {
 	limb_t high;
 	Py_ssize_t i;
@@ -164,11 +163,11 @@ limbs_div1(limbs res, const_limbs a, Py_ssize_t m, limb_t x)
    that m >= n.  w provides m+n+1 limbs of workspace. */
 
 static void
-limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
-	  Py_ssize_t n, limbs w)
+limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t m, const limb_t *b,
+	  Py_ssize_t n, limb_t *w)
 {
 	limb_t scale, top, a_top, b_top, q, dummy;
-	limbs aa, bb;
+	limb_t *aa, *bb;
 	bool carry;
 	Py_ssize_t j;
 
@@ -238,7 +237,7 @@ limbs_div(limbs quot, limbs rem, const_limbs a, Py_ssize_t m, const_limbs b,
    res has m - n/LIMB_DIGITS limbs. */
 
 static void
-limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
+limbs_rshift(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
 {
 	Py_ssize_t n_limbs, n_digits, i;
 	limb_t limb_top, limb_bot, rem;
@@ -270,7 +269,7 @@ limbs_rshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
    has at least 1+(n-1)/LIMB_DIGITS limbs. */
 
 static void
-limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
+limbs_slice(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
 {
 	Py_ssize_t mlimbs, mdigits, res_limbs, res_digits, i;
 	limb_t out, limb_bot, limb_top;
@@ -299,7 +298,7 @@ limbs_slice(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
    1+(n-1)/LIMB_DIGITS (or just size m if n == 0). */
 
 static void
-limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
+limbs_lshift(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
 {
 	Py_ssize_t n_limbs, n_digits, i;
 	limb_t limb_top, tmp;
@@ -341,7 +340,7 @@ limbs_lshift(limbs res, const_limbs a, Py_ssize_t m, Py_ssize_t n)
  */
 
 static Py_ssize_t
-limbs_from_longdigits(limbs a, const digit *b, Py_ssize_t b_size)
+limbs_from_longdigits(limb_t *a, const digit *b, Py_ssize_t b_size)
 {
 	Py_ssize_t i, j, a_size;
 	digitpair high;
@@ -365,7 +364,7 @@ limbs_from_longdigits(limbs a, const digit *b, Py_ssize_t b_size)
 /* base conversion, from base LIMB_BASE to base 2**30. */
 
 static Py_ssize_t
-limbs_to_longdigits(digitpair *b, const_limbs a, Py_ssize_t a_size)
+limbs_to_longdigits(digitpair *b, const limb_t *a, Py_ssize_t a_size)
 {
 	Py_ssize_t i, j, b_size;
 	limb_t high;
