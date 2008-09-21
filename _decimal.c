@@ -1,4 +1,5 @@
 /* Check for overflow in longsize_to_limbsize, ... */
+/* 123456789 << DI('2') crashes... */
 
 /*
  * Module implementing arbitrary-precision natural number arithmetic
@@ -529,10 +530,62 @@ deccoeff_from_string_and_size(const char *s, Py_ssize_t s_len) {
    outside the range [0, 10**MAX_DIGITS) then OverflowError is raised.
    Results are always normalized. */
 
+
+/* convert an arbitrary PyObject to a deccoeff.  If conversion is implemented
+   for this type, return false and put the result of the attempted conversion
+   (which may be NULL) in *z.   Otherwise, return true. */
+
+static deccoeff *deccoeff_from_PyLong(PyLongObject *a);
+
+static bool
+convert_to_deccoeff(deccoeff **z, PyObject *v)
+{
+	PyLongObject *w;
+	if (v->ob_type == &deccoeff_DeccoeffType) {
+		Py_INCREF(v);
+		*z = (deccoeff *)v;
+		return false;
+	}
+	else if (PyIndex_Check(v)) {
+		w = (PyLongObject *)PyNumber_Index(v);
+		if (w == NULL) {
+			*z = NULL;
+			return false;
+		}
+		*z = deccoeff_from_PyLong(w);
+		Py_DECREF(w);
+		return false;
+	}
+	else
+		return true;
+}
+
+
+#define DECCOEFF_WRAP_BINOP(PO_func, DC_func)   \
+static PyObject *                               \
+PO_func(PyObject *v, PyObject *w)               \
+{                                               \
+	deccoeff *a, *b;                        \
+	PyObject *z;                            \
+	if (convert_to_deccoeff(&a, v)) {       \
+		Py_INCREF(Py_NotImplemented);   \
+		return Py_NotImplemented;       \
+	}                                       \
+	if (convert_to_deccoeff(&b, w)) {       \
+		Py_DECREF(a);                   \
+		Py_INCREF(Py_NotImplemented);   \
+		return Py_NotImplemented;       \
+	}                                       \
+	z = (PyObject *)(DC_func(a, b));        \
+	Py_DECREF(a);                           \
+	Py_DECREF(b);                           \
+	return z;                               \
+}
+
 /* addition */
 
 static deccoeff *
-deccoeff_add(deccoeff *a, deccoeff *b)
+_deccoeff_add(deccoeff *a, deccoeff *b)
 {
 	Py_ssize_t a_size, b_size;
 	deccoeff *z;
@@ -558,7 +611,7 @@ deccoeff_add(deccoeff *a, deccoeff *b)
 /* subtraction */
 
 static deccoeff *
-deccoeff_subtract(deccoeff *a, deccoeff *b)
+_deccoeff_subtract(deccoeff *a, deccoeff *b)
 {
 	Py_ssize_t a_size, b_size;
 	deccoeff *z;
@@ -584,7 +637,7 @@ deccoeff_subtract(deccoeff *a, deccoeff *b)
 /* multiplication */
 
 static deccoeff *
-deccoeff_multiply(deccoeff *a, deccoeff *b)
+_deccoeff_multiply(deccoeff *a, deccoeff *b)
 {
 	Py_ssize_t a_size, b_size;
 	deccoeff *z;
@@ -602,7 +655,7 @@ deccoeff_multiply(deccoeff *a, deccoeff *b)
    ZeroDivisionError on division by zero. */
 
 static deccoeff *
-_deccoeff_divmod(deccoeff **r, deccoeff *a, deccoeff *b) {
+_deccoeff_division(deccoeff **r, deccoeff *a, deccoeff *b) {
 	deccoeff *w, *rem, *quot;
 	Py_ssize_t a_size, b_size;
 	a_size = Py_SIZE(a);
@@ -654,9 +707,9 @@ _deccoeff_divmod(deccoeff **r, deccoeff *a, deccoeff *b) {
 /* remainder: raises ZeroDivisionError if b is zero */
 
 static deccoeff *
-deccoeff_remainder(deccoeff *a, deccoeff *b) {
+_deccoeff_remainder(deccoeff *a, deccoeff *b) {
 	deccoeff *quot, *rem;
-	quot = _deccoeff_divmod(&rem, a, b);
+	quot = _deccoeff_division(&rem, a, b);
 	if (rem == NULL)
 		return NULL;
 	Py_DECREF(quot);
@@ -666,10 +719,10 @@ deccoeff_remainder(deccoeff *a, deccoeff *b) {
 /* divmod: raises ZeroDivisionError if b is zero */
 
 static PyObject *
-deccoeff_divmod(deccoeff *a, deccoeff *b) {
+_deccoeff_divmod(deccoeff *a, deccoeff *b) {
 	deccoeff *quot, *rem;
 
-	quot = _deccoeff_divmod(&rem, a, b);
+	quot = _deccoeff_division(&rem, a, b);
 	if (quot == NULL)
 		return NULL;
 	return Py_BuildValue("OO", (PyObject *)quot, (PyObject *)rem);
@@ -844,9 +897,9 @@ deccoeff_subscript(deccoeff *a, PyObject *b)
 /* floor division:  raise ZeroDivisionError if b is 0 */
 
 static deccoeff *
-deccoeff_floor_divide(deccoeff *a, deccoeff *b) {
+_deccoeff_floor_divide(deccoeff *a, deccoeff *b) {
 	deccoeff *quot, *rem;
-	quot = _deccoeff_divmod(&rem, a, b);
+	quot = _deccoeff_division(&rem, a, b);
 	if (quot == NULL)
 		return NULL;
 	Py_DECREF(rem);
@@ -1084,12 +1137,19 @@ static PyMappingMethods deccoeff_as_mapping = {
 	0, /*mp_ass_subscript*/
 };
 
+DECCOEFF_WRAP_BINOP(deccoeff_add, _deccoeff_add)
+DECCOEFF_WRAP_BINOP(deccoeff_subtract, _deccoeff_subtract)
+DECCOEFF_WRAP_BINOP(deccoeff_multiply, _deccoeff_multiply)
+DECCOEFF_WRAP_BINOP(deccoeff_remainder, _deccoeff_remainder)
+DECCOEFF_WRAP_BINOP(deccoeff_divmod, _deccoeff_divmod)
+DECCOEFF_WRAP_BINOP(deccoeff_floor_divide, _deccoeff_floor_divide)
+
 static PyNumberMethods deccoeff_as_number = {
-	(binaryfunc) deccoeff_add,              /*nb_add*/
-	(binaryfunc) deccoeff_subtract,         /*nb_subtract*/
-	(binaryfunc) deccoeff_multiply,         /*nb_multiply*/
-	(binaryfunc) deccoeff_remainder,        /*nb_remainder*/
-	(binaryfunc) deccoeff_divmod,           /*nb_divmod*/
+	deccoeff_add,                           /*nb_add*/
+	deccoeff_subtract,                      /*nb_subtract*/
+	deccoeff_multiply,                      /*nb_multiply*/
+	deccoeff_remainder,                     /*nb_remainder*/
+	deccoeff_divmod,                        /*nb_divmod*/
 	0, /*nb_power*/
 	(unaryfunc) deccoeff_negative,          /*nb_negative*/
 	(unaryfunc) deccoeff_positive,          /*nb_positive*/
@@ -1114,7 +1174,7 @@ static PyNumberMethods deccoeff_as_number = {
 	0, /*nb_inplace_and*/
 	0, /*nb_inplace_xor*/
 	0, /*nb_inplace_or*/
-	(binaryfunc)deccoeff_floor_divide,      /*nb_floor_divide*/
+	deccoeff_floor_divide,                  /*nb_floor_divide*/
 	0, /*nb_true_divide*/
 	0, /*nb_inplace_floor_divide*/
 	0, /*nb_inplace_true_divide*/
