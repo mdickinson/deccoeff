@@ -1,5 +1,4 @@
 /* Check for overflow in longsize_to_limbsize, ... */
-/* 123456789 << DI('2') crashes... */
 
 /*
  * Module implementing arbitrary-precision natural number arithmetic
@@ -14,15 +13,14 @@
  *  To do
  *  -----
  *  write Deccoeff-specific tests
- *  improve documentation
- *  add type checks for binary arithmetic ops.
+ *  improve and correct documentation
  *  fast recursive algorithms for multiplication, division, base conversion
- *  docstrings
  *  fix some C99isms.  (ob_limbs[0] is invalid in C89.  stdint and
  *      stdbool aren't available...)
  *  provide fallback for systems that don't have a 64-bit integer type
  *  implement two and three-argument pow
- *  export LIMB_DIGITS to Python
+ *  consider exporting LIMB_DIGITS (and possibly also MAX_DIGITS) to Python as
+ *  a module-level constant
  */
 
 /* Various notes:
@@ -763,10 +761,27 @@ deccoeff_bool(deccoeff *a)
 /* left shift; second operand is a Python integer, not a
    deccoeff. raises ValueError if second operand is negative */
 
-static deccoeff *
-deccoeff_lshift(deccoeff *a, PyObject *b) {
+/* how should this behave with respect to other types?
+   i.e., should 2 << DI('3') be an error?
+   For now, yes:  can't see much value in 2 << DI('3').
+
+   So: first argument should be a Deccoeff.  Second argument
+   may be a decoeff, may be something else that can be interpreted as
+   an index.
+ */
+
+static PyObject *
+deccoeff_lshift(PyObject *v, PyObject *b) {
 	Py_ssize_t n, a_size;
-	deccoeff *z;
+	deccoeff *z, *a;
+
+	/* shifting another type by a deccoeff is not supported */
+	if (v->ob_type != &deccoeff_DeccoeffType || !PyIndex_Check(b)) {
+		Py_INCREF(Py_NotImplemented);
+		return Py_NotImplemented;
+	}
+	a = (deccoeff *)v;
+
 	/* attempt to interpret b as a nonnegative index */
 	n = PyNumber_AsSsize_t(b, NULL);
 	if (n == -1 && PyErr_Occurred())
@@ -778,7 +793,7 @@ deccoeff_lshift(deccoeff *a, PyObject *b) {
 
 	a_size = Py_SIZE(a);
 	if (a_size == 0)
-		return deccoeff_zero();
+		return (PyObject *)deccoeff_zero();
 	if (n >= MAX_DIGITS) {
 		PyErr_SetString(PyExc_OverflowError,
 				"Deccoeff instance has too many digits");
@@ -788,16 +803,24 @@ deccoeff_lshift(deccoeff *a, PyObject *b) {
 	if (z==NULL)
 		return NULL;
 	limbs_lshift(z->ob_limbs, a->ob_limbs, a_size, n);
-	return deccoeff_checksize(deccoeff_normalize(z));
+	return (PyObject *)deccoeff_checksize(deccoeff_normalize(z));
 }
 
 /* right shift; second operand is a Python integer, not a deccoeff.
    Raises ValueError if second operand is negative. */
 
-static deccoeff *
-deccoeff_rshift(deccoeff *a, PyObject *b) {
+static PyObject *
+deccoeff_rshift(PyObject *v, PyObject *b) {
 	Py_ssize_t n, a_size, shift;
-	deccoeff *z;
+	deccoeff *z, *a;
+
+	/* shifting another type by a deccoeff is not supported */
+	if (v->ob_type != &deccoeff_DeccoeffType || !PyIndex_Check(b)) {
+		Py_INCREF(Py_NotImplemented);
+		return Py_NotImplemented;
+	}
+	a = (deccoeff *)v;
+
 	/* attempt to interpret b as a nonnegative index */
 	n = PyNumber_AsSsize_t(b, NULL);
 	if (n == -1 && PyErr_Occurred())
@@ -810,12 +833,12 @@ deccoeff_rshift(deccoeff *a, PyObject *b) {
 	a_size = Py_SIZE(a);
 	shift = n / LIMB_DIGITS;
 	if (shift >= a_size)
-		return deccoeff_zero();
+		return (PyObject *)deccoeff_zero();
 	z = _deccoeff_new(a_size - shift);
 	if (z==NULL)
 		return NULL;
 	limbs_rshift(z->ob_limbs, a->ob_limbs, a_size, n);
-	return deccoeff_normalize(z);
+	return (PyObject *)deccoeff_normalize(z);
 }
 
 /* slice: the slice indices should be nonnegative integers;  the step
@@ -1156,8 +1179,8 @@ static PyNumberMethods deccoeff_as_number = {
 	(unaryfunc) deccoeff_positive,          /*nb_absolute*/
 	(inquiry) deccoeff_bool,                /*nb_bool*/
 	0, /*nb_invert*/
-	(binaryfunc) deccoeff_lshift,           /*nb_lshift*/
-	(binaryfunc) deccoeff_rshift,           /*nb_rshift*/
+	deccoeff_lshift,                        /*nb_lshift*/
+	deccoeff_rshift,                        /*nb_rshift*/
 	0, /*nb_and*/
 	0, /*nb_xor*/
 	0, /*nb_or*/
