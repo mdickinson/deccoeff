@@ -152,7 +152,7 @@ limb_error(const char *msg)
 /* add with carry: compute a + b + c, put result in *r and return
    the new carry. */
 
-extern bool
+static bool
 limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 {
 	limb_t sum, test;
@@ -171,7 +171,7 @@ limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 /* subtract with borrow:  compute a - (b + c); put result in *r
    and return the carry. */
 
-extern bool
+static bool
 limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
 {
 	limb_t diff;
@@ -188,7 +188,7 @@ limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
 
 /* comparisons between limbs */
 
-extern bool
+static bool
 limb_eq(limb_t a, limb_t b)
 {
 	return a == b;
@@ -198,7 +198,7 @@ limb_eq(limb_t a, limb_t b)
    multiplication.  Store the low part of the result in *low, and return
    the high part. */
 
-extern limb_t
+static limb_t
 limb_fmaa(limb_t *low, limb_t a, limb_t b, limb_t c, limb_t d) {
 	double_limb_t hilo;
 	hilo = (double_limb_t)a * b + c + d;
@@ -210,7 +210,7 @@ limb_fmaa(limb_t *low, limb_t a, limb_t b, limb_t c, limb_t d) {
    and a remainder (stored in *rem).  Requires that high < c (and
    hence that c is nonzero). */
 
-extern limb_t
+static limb_t
 limb_div(limb_t *rem, limb_t high, limb_t low, limb_t c) {
 	double_limb_t hilo;
 	if (high >= c)
@@ -223,7 +223,7 @@ limb_div(limb_t *rem, limb_t high, limb_t low, limb_t c) {
 /* return index of most significant digit of given limb;
    result is undefined if the limb is 0 */
 
-extern Py_ssize_t
+static Py_ssize_t
 limb_dsr(limb_t x) {
 	Py_ssize_t i;
 	if (x == 0)
@@ -234,7 +234,7 @@ limb_dsr(limb_t x) {
 
 /* shift a limb right n places (0 <= n <= LIMB_DIGITS) */
 
-extern limb_t
+static limb_t
 limb_sar(limb_t x, Py_ssize_t n) {
 	if (!(0 <= n && n <= LIMB_DIGITS))
 		limb_error("invalid shift count in limb_sar");
@@ -244,7 +244,7 @@ limb_sar(limb_t x, Py_ssize_t n) {
 /* rotate right and split; like limb_sar, but also puts piece that was shifted
    out into the top of *res */
 
-extern limb_t
+static limb_t
 limb_split(limb_t *res, limb_t x, Py_ssize_t n) {
 	if (!(0 <= n && n <= LIMB_DIGITS))
 		limb_error("invalid shift count in limb_split");
@@ -254,7 +254,7 @@ limb_split(limb_t *res, limb_t x, Py_ssize_t n) {
 
 /* rotate left and split */
 
-extern limb_t
+static limb_t
 limb_splitl(limb_t *res, limb_t x, Py_ssize_t n) {
 	if (!(0 <= n && n <= LIMB_DIGITS))
 		limb_error("invalid shift count in limb_splitl");
@@ -264,7 +264,7 @@ limb_splitl(limb_t *res, limb_t x, Py_ssize_t n) {
 
 /* shift a limb left n places (0 <= n <= LIMB_DIGITS) */
 
-extern limb_t
+static limb_t
 limb_sal(limb_t x, Py_ssize_t n) {
 	if (!(0 <= n && n <= LIMB_DIGITS))
 		limb_error("invalid shift count in limb_sal");
@@ -273,14 +273,14 @@ limb_sal(limb_t x, Py_ssize_t n) {
 
 /* select the bottom n digits of a limb (0 <= n <= LIMB_DIGITS) */
 
-extern limb_t
+static limb_t
 limb_low(limb_t x, Py_ssize_t n) {
 	if (!(0 <= n && n <= LIMB_DIGITS))
 		limb_error("invalid shift count in limb_low");
 	return x % powers_of_ten[n];
 }
 
-extern limb_t
+static limb_t
 limb_shift_digit_in(limb_t x, int i) {
 	if (!(0 <= i && i <= 9))
 		limb_error("invalid digit in limb_shift_digit_in");
@@ -289,7 +289,7 @@ limb_shift_digit_in(limb_t x, int i) {
 	return x * 10 + (limb_t)i;
 }
 
-extern int
+static int
 limb_shift_digit_out(limb_t *x, limb_t a) {
 	int result;
 	result = a % 10;
@@ -304,7 +304,7 @@ limb_shift_digit_out(limb_t *x, limb_t a) {
    c*LIMB_BASE + d, with c a digit pair and d a limb.  Return c and
    put d in *low. */
 
-extern digit
+static digit
 limb_digit_swap(limb_t *low, limb_t a, digit b)
 {
 	digit_limb_t hilo;
@@ -317,7 +317,7 @@ limb_digit_swap(limb_t *low, limb_t a, digit b)
    b in the form c*(2**30) + d, c a limb and d a digit pair.  Return c and put
    d in *low. */
 
-extern limb_t
+static limb_t
 digit_limb_swap(digit *low, digit a, limb_t b)
 {
 	digit_limb_t hilo;
@@ -326,7 +326,7 @@ digit_limb_swap(digit *low, digit a, limb_t b)
 	return (limb_t)(hilo >> PyLong_SHIFT);
 }
 
-extern unsigned long
+static unsigned long
 limb_hash(limb_t x) {
 	return (unsigned long)x;
 }
@@ -335,7 +335,7 @@ limb_hash(limb_t x) {
 
 /* a < b iff a - b overflows */
 
-extern bool
+static bool
 limb_lt(limb_t a, limb_t b)
 {
 	limb_t dummy;
@@ -344,7 +344,7 @@ limb_lt(limb_t a, limb_t b)
 
 /* a <= b iff a - b - 1 overflows */
 
-extern bool
+static bool
 limb_le(limb_t a, limb_t b)
 {
 	limb_t dummy;
