@@ -1,6 +1,6 @@
 from distutils.core import setup, Extension
 
-files = ['_decimal.c', 'limb.c']
+files = ['_decimal.c']
 
 libraries = []
 includes = []
