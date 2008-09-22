@@ -292,6 +292,15 @@ limb_shift_digit_out(limb_t *x, limb_t a) {
 	return result;
 }
 
+static limb_t
+limb_getdigit(limb_t x, Py_ssize_t n)
+{
+	if (!(0 <= n && n < 9))
+		limb_error("invalid digit in limb_getdigit");
+	return (x / powers_of_ten[n]) % 10;
+}
+
+
 /* type digit_limb_t is an integer type large enough to hold
    any value in the range [0, LIMB_BASE * PyLong_BASE] */
 
@@ -617,6 +626,16 @@ limbs_slice(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
 		assert(!carry);
 	}
 	res[i] = limb_low(out, res_digits);
+}
+
+
+/* get a particular digit from an array of limbs.  assumes that 0 <= n <
+   a_size * LIMB_DIGITS */
+
+static limb_t
+limbs_getdigit(limb_t *a, Py_ssize_t n)
+{
+	return limb_getdigit(a[n/LIMB_DIGITS], n%LIMB_DIGITS);
 }
 
 /* shift m-limb number left n digits (shifting zeros in); i.e.,
@@ -1223,6 +1242,19 @@ deccoeff_subscript(deccoeff *a, PyObject *b)
 				return NULL;
 			}
 		}
+		/* reduce to case 0 <= start < stop <= a_size * LIMB_DIGITS */
+		if (stop > defstop)
+			stop = defstop;
+		if (stop <= start)
+			return deccoeff_zero();
+
+		/* allocate space for result */
+		z = _deccoeff_new((stop-start-1)/LIMB_DIGITS + 1);
+		if (z==NULL)
+			return NULL;
+		limbs_slice(z->ob_limbs, a->ob_limbs, start, stop);
+		return deccoeff_normalize(z);
+
 	}
 	else {
 		start = PyNumber_AsSsize_t(b, NULL);
@@ -1233,23 +1265,15 @@ deccoeff_subscript(deccoeff *a, PyObject *b)
 					"index should be nonnegative");
 			return NULL;
 		}
-		/* clip large results to MAX_DIGITS */
-		if (start > MAX_DIGITS)
-			start = MAX_DIGITS;
-		stop = start + 1;
-	}
-	/* reduce to case 0 <= start < stop <= a_size * LIMB_DIGITS */
-	if (stop > defstop)
-		stop = defstop;
-	if (stop <= start)
-		return deccoeff_zero();
+		if (start >= defstop)
+			return deccoeff_zero();
 
-	/* allocate space for result */
-	z = _deccoeff_new((stop-start-1)/LIMB_DIGITS + 1);
-	if (z==NULL)
-		return NULL;
-	limbs_slice(z->ob_limbs, a->ob_limbs, start, stop);
-	return deccoeff_normalize(z);
+		z = _deccoeff_new(1);
+		if (z == NULL)
+			return NULL;
+		z->ob_limbs[0] = limbs_getdigit(a->ob_limbs, start);
+		return deccoeff_normalize(z);
+	}
 }
 
 /* floor division:  raise ZeroDivisionError if b is 0 */
