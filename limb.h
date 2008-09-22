@@ -13,6 +13,16 @@ typedef int32_t limb_t;
 
 #define LIMB_DIGITS (9)
 
+/* BASEC_P/BASEC_Q is a rational upper bound for
+   log(PyLong_BASE)/log(LIMB_BASE) */
+#define BASEC_P 5553
+#define BASEC_Q 11068
+
+/* BASECI_P/BASECI_Q is a rational upper bound for
+   log(LIMB_BASE)/log(PyLong_BASE) */
+#define BASECI_P 4369
+#define BASECI_Q 2192
+
 /* definitions used for conversion from binary to decimal and back */
 
 /* arithmetic operations on limbs */

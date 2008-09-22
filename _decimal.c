@@ -1,5 +1,3 @@
-/* Check for overflow in longsize_to_limbsize, ... */
-
 /*
  * Module implementing arbitrary-precision natural number arithmetic
  * in a decimal base.  As the name 'deccoeff' suggests, these numbers
@@ -434,8 +432,8 @@ typedef struct {
 /* XXX this results in wasted memory (DECCOEFF_BASICSIZE is too
    large); fix me! */
 
-#define DECCOEFF_ITEMSIZE sizeof(limb_t);
-#define DECCOEFF_BASICSIZE sizeof(deccoeff);
+#define DECCOEFF_ITEMSIZE sizeof(limb_t)
+#define DECCOEFF_BASICSIZE sizeof(deccoeff)
 
 static PyTypeObject deccoeff_DeccoeffType;
 
@@ -967,12 +965,30 @@ deccoeff_richcompare(PyObject *self, PyObject *other, int op)
 	return result;
 }
 
+/* Compute ceiling(n*p/q) without intermediate overflow.  If the result
+   would be larger than PY_SSIZE_T_MAX, return -1.  Assumes that
+   n is nonnegative, and that (q-1)*(p+1) <= PY_SSIZE_T_MAX. */
+
+static Py_ssize_t
+scale_Py_ssize_t(Py_ssize_t n, int p, int q) {
+	Py_ssize_t hi, low;
+	assert (n >= 0);
+	hi = n/q;
+	if (hi > PY_SSIZE_T_MAX/p)
+		return -1;
+	hi *= p;
+	low = (n%q*p+q-1)/q;
+	if (hi > PY_SSIZE_T_MAX-low)
+		return -1;
+	return hi+low;
+}
+
 /* Create a deccoeff from a Python integer. */
 
 static deccoeff *
 deccoeff_from_PyLong(PyLongObject *a)
 {
-	Py_ssize_t a_size;
+	Py_ssize_t a_size, z_size;
 	deccoeff *z;
 
 	a_size = Py_SIZE(a);
@@ -982,7 +998,11 @@ deccoeff_from_PyLong(PyLongObject *a)
 		return NULL;
 	}
 
-	z = _deccoeff_new(limbsize_from_longsize(a_size));
+	z_size = scale_Py_ssize_t(a_size, BASEC_P, BASEC_Q);
+	if (z_size == -1)
+		PyErr_SetString(PyExc_OverflowError,
+				"Overflow in int to deccoeff conversion\n");
+	z = _deccoeff_new(z_size);
 	if (z==NULL)
 		return NULL;
 	Py_SIZE(z) = limbs_from_longdigits(z->ob_limbs, a->ob_digit, a_size);
@@ -992,11 +1012,15 @@ deccoeff_from_PyLong(PyLongObject *a)
 static PyLongObject *
 deccoeff_long(deccoeff *a)
 {
-	Py_ssize_t a_size;
+	Py_ssize_t a_size, z_size;
 	PyLongObject *z;
 
 	a_size = Py_SIZE(a);
-	z = _PyLong_New(longsize_from_limbsize(a_size));
+	z_size = scale_Py_ssize_t(a_size, BASECI_P, BASECI_Q);
+	if (z_size == -1)
+		PyErr_SetString(PyExc_OverflowError,
+				"Overflow in deccoeff to int conversion\n");
+	z = _PyLong_New(z_size);
 	if (z == NULL)
 		return NULL;
 	Py_SIZE(z) = limbs_to_longdigits(z->ob_digit, a->ob_limbs, a_size);

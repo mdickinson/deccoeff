@@ -199,6 +199,9 @@ limb_shift_digit_out(limb_t *x, limb_t a) {
 	return result;
 }
 
+/* type digit_limb_t is an integer type large enough to hold
+   any value in the range [0, LIMB_BASE * PyLong_BASE] */
+
 typedef int64_t digit_limb_t;
 
 /* given limb a and digit pair b, write a*2**30 + b in the form
@@ -225,34 +228,6 @@ digit_limb_swap(digit *low, digit a, limb_t b)
 	hilo = (digit_limb_t)a * LIMB_BASE + b;
 	*low = (digit)(hilo & PyLong_MASK);
 	return (limb_t)(hilo >> PyLong_SHIFT);
-}
-
-/* given a nonnegative integer n representing a number of PyLong digits,
-   return an upper bound for the number of limbs required to hold that many
-   digits.  Return PY_SSIZE_T_MAX on overflow. */
-
-extern Py_ssize_t
-limbsize_from_longsize(Py_ssize_t n) {
-	/* compute ceiling(146*n/291); 146/291 is a touch larger than
-	   log(2**15)/log(10**9).  we're making n smaller, so there's no
-	   danger of overflow. */
-	if (n < 10000000)
-		/* n not too large (usual case) */
-		return (n*146+291 - 1)/291;
-	else
-		/* n large; rewrite the above expression to avoid overflow */
-		return n/291*146 + (n%291*146 + 290)/291;
-}
-
-extern Py_ssize_t
-longsize_from_limbsize(Py_ssize_t n) {
-	/* here we need a rational upper bound for log(10^9)/log(2^15) = 
-	   0.9965784284...
-	   1 would work;  874/877 =
-	   0.9965792474...
-	   is slightly better.  Let's go with 1 and waste some space... */
-	/* XXX check for overflow! and caller should check for -1! */
-	return 2*n;
 }
 
 extern unsigned long
