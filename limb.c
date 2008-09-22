@@ -22,9 +22,6 @@
 #include <assert.h>
 #include "limb.h"
 
-/* for splint checking, we define Py_ssize_t, PY_SSIZE_T_MAX
-   using explicit defines. */
-
 #define LIMB_BASE (LIMB_MAX+1)
 
 typedef int64_t double_limb_t;
