@@ -1,11 +1,11 @@
 from distutils.core import setup, Extension
 
-files = ['_decimal.c']
+files = ['deccoeff.c']
 
 libraries = []
 includes = []
-setup(name = "_decimal", version = "0.1",
-      ext_modules = [Extension("_decimal", files,
+setup(name = "deccoeff", version = "0.2",
+      ext_modules = [Extension("deccoeff", files,
                                libraries = libraries,
                                include_dirs =  includes,
                                )

@@ -1,24 +1,21 @@
 PYTHON = ../py3k/python.exe
 
-all: _decimal.so
+all: deccoeff.so
 module:
 	$(PYTHON) setup.py build
-	cp build/lib*/_decimal.so .
+	cp build/lib*/deccoeff.so .
 clean:
 	-rm -rf build/
-	-rm _decimal.o _decimal.so
-	-rm decimal.pyc test_decimal.pyc
-test: _decimal.so
+	-rm deccoeff.o deccoeff.so
+	-rm *.pyc
+	-rm config.status config.log autom4te.cache
+
+test: deccoeff.so
 	$(PYTHON) test_decimal.py
 
-run: _decimal.so
+run: deccoeff.so
 	$(PYTHON) -i run.py
-profile: _decimal.so
-	$(PYTHON) -i profile.py
 
-debug: _decimal.so
-	gdb $(PYTHON)
-
-_decimal.so: _decimal.c
+deccoeff.so: deccoeff.c
 	$(PYTHON) setup.py build
-	cp build/lib*/_decimal.so .
+	cp build/lib*/deccoeff.so .
