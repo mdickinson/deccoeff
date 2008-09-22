@@ -17,6 +17,9 @@ test: deccoeff.so
 run: deccoeff.so
 	$(PYTHON) -i run.py
 
+install: all
+	$(PYTHON) setup.py install
+
 deccoeff.so: deccoeff.c
 	$(PYTHON) setup.py build
 	cp build/lib*/deccoeff.so .
