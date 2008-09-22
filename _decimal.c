@@ -1298,6 +1298,7 @@ PyMODINIT_FUNC
 PyInit__decimal(void)
 {
 	PyObject *m;
+	int check;
 
 	if (PyType_Ready(&deccoeff_DeccoeffType) < 0)
 		return NULL;
@@ -1307,7 +1308,12 @@ PyInit__decimal(void)
 		return NULL;
 
 	Py_INCREF(&deccoeff_DeccoeffType);
-	PyModule_AddObject(m, CLASS_NAME, (PyObject *) &deccoeff_DeccoeffType);
-
+	check = PyModule_AddObject(m, CLASS_NAME,
+				   (PyObject *) &deccoeff_DeccoeffType);
+	if (check == -1)
+		return NULL;
+	check = PyModule_AddIntMacro(m, LIMB_DIGITS);
+	if (check == -1)
+		return NULL;
 	return m;
 }
