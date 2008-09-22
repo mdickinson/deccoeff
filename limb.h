@@ -13,13 +13,29 @@
 
    BASEC_P/BASEC_Q is an upper bound for log(PyLong_BASE)/log(LIMB_BASE);
    BASECI_P/BASECI_Q is an upper bound for log(LIMB_BASE)/log(PyLong_BASE). */
-#if 1
-/* definitions to use if int32_t and int64_t are available */
+
+#if defined(INT32_MAX) && defined(INT64_MAX)
+
+/* use int32_t and int64_t if available... */
 
 typedef int32_t limb_t;
 typedef int64_t double_limb_t;
 typedef int64_t digit_limb_t;
-#define LIMB_DIGITS (9)
+#define LIMB_DIGITS 9
+#define LIMB_MAX ((limb_t)999999999)
+#define BASEC_P 5553
+#define BASEC_Q 11068
+#define BASECI_P 4369
+#define BASECI_Q 2192
+
+#elif defined(LLONG_MAX)
+
+/* else use long and long long */
+
+typedef long limb_t;
+typedef long long double_limb_t;
+typedef long long digit_limb_t;
+#define LIMB_DIGITS 9
 #define LIMB_MAX ((limb_t)999999999)
 #define BASEC_P 5553
 #define BASEC_Q 11068
@@ -28,12 +44,12 @@ typedef int64_t digit_limb_t;
 
 #else
 
-/* fallback definitions when only the standard C89 types are available */
+/* else fall back to short and long, and make LIMB_DIGITS 4 */
 
 typedef short limb_t;
 typedef long double_limb_t;
 typedef long digit_limb_t;
-#define LIMB_DIGITS (4)
+#define LIMB_DIGITS 4
 #define LIMB_MAX ((limb_t)9999)
 #define BASEC_P 5890
 #define BASEC_Q 6649
