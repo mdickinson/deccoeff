@@ -5,10 +5,11 @@ module:
 	$(PYTHON) setup.py build
 	cp build/lib*/deccoeff.so .
 clean:
-	-rm -rf build/
+	-rm -fr build/
 	-rm deccoeff.o deccoeff.so
 	-rm *.pyc
-	-rm config.status config.log autom4te.cache
+	-rm config.status config.log config.h
+	-rm -fr autom4te.cache/
 
 test: deccoeff.so
 	$(PYTHON) test_decimal.py
