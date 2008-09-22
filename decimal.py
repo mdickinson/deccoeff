@@ -134,8 +134,7 @@ __all__ = [
     'setcontext', 'getcontext', 'localcontext'
 ]
 
-from _decimal import Deccoeff
-import _decimal
+from deccoeff import Deccoeff
 
 import copy as _copy
 

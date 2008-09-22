@@ -375,7 +375,7 @@ limb_le(limb_t a, limb_t b)
    range [0, BASE*BASE).
 */
 
-#define MODULE_NAME "_decimal"
+#define MODULE_NAME "deccoeff"
 #define CLASS_NAME "Deccoeff"
 
 /*********************************
@@ -1611,9 +1611,9 @@ static PyMethodDef deccoeff_module_methods[] = {
 	{NULL, NULL}
 };
 
-static struct PyModuleDef _decimalmodule = {
+static struct PyModuleDef deccoeff_module = {
 	PyModuleDef_HEAD_INIT,
-	"_decimal",
+	"deccoeff",
 	"class for decimal integer arithmetic; support for decimal module",
 	-1,
 	deccoeff_module_methods,
@@ -1624,7 +1624,7 @@ static struct PyModuleDef _decimalmodule = {
 };
 
 PyMODINIT_FUNC
-PyInit__decimal(void)
+PyInit_deccoeff(void)
 {
 	PyObject *m;
 	int check;
@@ -1632,7 +1632,7 @@ PyInit__decimal(void)
 	if (PyType_Ready(&deccoeff_DeccoeffType) < 0)
 		return NULL;
 
-	m = PyModule_Create(&_decimalmodule);
+	m = PyModule_Create(&deccoeff_module);
 	if (m == NULL)
 		return NULL;
 
