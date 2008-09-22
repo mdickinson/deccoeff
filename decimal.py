@@ -1948,7 +1948,7 @@ class Decimal(object):
             base = pow(base, 10, modulo)
         base = pow(base, exponent.int, modulo)
 
-        return _dec_from_triple(sign, Deccoeff(str(base)), 0)
+        return _dec_from_triple(sign, Deccoeff(base), 0)
 
     def _power_exact(self, other, p):
         """Attempt to compute self**other exactly.
@@ -2099,7 +2099,7 @@ class Decimal(object):
             if xc >= 10**p:
                 return None
             xe = -e-xe
-            return _dec_from_triple(0, Deccoeff(str(xc)), xe)
+            return _dec_from_triple(0, Deccoeff(xc), xe)
 
         # now y is positive; find m and n such that y = m/n
         if ye >= 0:
@@ -2324,7 +2324,7 @@ class Decimal(object):
                     break
                 extra += 3
 
-            ans = _dec_from_triple(result_sign, Deccoeff(str(coeff)), exp)
+            ans = _dec_from_triple(result_sign, Deccoeff(coeff), exp)
 
         # the specification says that for non-integer other we need to
         # raise Inexact, even when the result is actually exact.  In
@@ -2909,7 +2909,7 @@ class Decimal(object):
                     break
                 extra += 3
 
-            ans = _dec_from_triple(0, Deccoeff(str(coeff)), exp)
+            ans = _dec_from_triple(0, Deccoeff(coeff), exp)
 
         # at this stage, ans should round correctly with *any*
         # rounding mode, not just with ROUND_HALF_EVEN
@@ -3043,7 +3043,7 @@ class Decimal(object):
             if coeff % (5*10**(len(str(abs(coeff)))-p-1)):
                 break
             places += 3
-        ans = _dec_from_triple(int(coeff<0), Deccoeff(str(abs(coeff))), -places)
+        ans = _dec_from_triple(int(coeff<0), Deccoeff(abs(coeff)), -places)
 
         context = context._shallow_copy()
         rounding = context._set_rounding(ROUND_HALF_EVEN)
@@ -3124,7 +3124,7 @@ class Decimal(object):
                 if coeff % (5*10**(len(str(abs(coeff)))-p-1)):
                     break
                 places += 3
-            ans = _dec_from_triple(int(coeff<0), Deccoeff(str(abs(coeff))), -places)
+            ans = _dec_from_triple(int(coeff<0), Deccoeff(abs(coeff)), -places)
 
         context = context._shallow_copy()
         rounding = context._set_rounding(ROUND_HALF_EVEN)
