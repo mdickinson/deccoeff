@@ -22,9 +22,7 @@
 #include <assert.h>
 #include "limb.h"
 
-#define LIMB_BASE (LIMB_MAX+1)
-
-typedef int64_t double_limb_t;
+#if LIMB_DIGITS == 9
 
 static limb_t powers_of_ten[LIMB_DIGITS+1] = {
 	1,
@@ -38,6 +36,22 @@ static limb_t powers_of_ten[LIMB_DIGITS+1] = {
 	100000000,
 	1000000000
 };
+
+#elif LIMB_DIGITS == 4
+
+static limb_t powers_of_ten[LIMB_DIGITS+1] = {
+	1,
+	10,
+	100,
+	1000,
+	10000
+};
+
+#else
+
+#error "LIMB_DIGITS should be 4 or 9"
+
+#endif
 
 /* XXX replace limb_error with Py_FataError eventually */
 
@@ -198,8 +212,6 @@ limb_shift_digit_out(limb_t *x, limb_t a) {
 
 /* type digit_limb_t is an integer type large enough to hold
    any value in the range [0, LIMB_BASE * PyLong_BASE] */
-
-typedef int64_t digit_limb_t;
 
 /* given limb a and digit pair b, write a*2**30 + b in the form
    c*LIMB_BASE + d, with c a digit pair and d a limb.  Return c and

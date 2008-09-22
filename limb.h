@@ -6,24 +6,48 @@
 #include "Python.h"
 #include "longintrepr.h"
 
+/* limb_t is an integer type that can hold any integer in the range [0,
+   LIMB_BASE).  double_limb_t should be able to hold any integer in the range
+   [0, LIMB_BASE*LIMB_BASE), while digit_limb_t should be able to hold any
+   integer in the range [0, LIMB_BASE*PyLong_BASE).
 
+   BASEC_P/BASEC_Q is an upper bound for log(PyLong_BASE)/log(LIMB_BASE);
+   BASECI_P/BASECI_Q is an upper bound for log(LIMB_BASE)/log(PyLong_BASE). */
+#if 1
+/* definitions to use if int32_t and int64_t are available */
 
 typedef int32_t limb_t;
-#define LIMB_ZERO ((limb_t)0)
-#define LIMB_ONE ((limb_t)1)
-#define LIMB_MAX ((limb_t)999999999)
-
+typedef int64_t double_limb_t;
+typedef int64_t digit_limb_t;
 #define LIMB_DIGITS (9)
-
-/* BASEC_P/BASEC_Q is a rational upper bound for
-   log(PyLong_BASE)/log(LIMB_BASE) */
+#define LIMB_MAX ((limb_t)999999999)
 #define BASEC_P 5553
 #define BASEC_Q 11068
-
-/* BASECI_P/BASECI_Q is a rational upper bound for
-   log(LIMB_BASE)/log(PyLong_BASE) */
 #define BASECI_P 4369
 #define BASECI_Q 2192
+
+#else
+
+/* fallback definitions when only the standard C89 types are available */
+
+typedef short limb_t;
+typedef long double_limb_t;
+typedef long digit_limb_t;
+#define LIMB_DIGITS (4)
+#define LIMB_MAX ((limb_t)9999)
+#define BASEC_P 5890
+#define BASEC_Q 6649
+#define BASECI_P 1717
+#define BASECI_Q 1521
+
+#endif
+
+#define LIMB_ZERO ((limb_t)0)
+#define LIMB_ONE ((limb_t)1)
+#define LIMB_BASE (LIMB_MAX+1)
+
+
+
 
 /* definitions used for conversion from binary to decimal and back */
 

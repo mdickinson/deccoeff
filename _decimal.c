@@ -14,10 +14,9 @@
  *  improve and correct documentation
  *  fast recursive algorithms for multiplication, division, base conversion
  *  fix usage of stdint and stdbool
- *  provide fallback for systems that don't have a 64-bit integer type
  *  implement two and three-argument pow
  *  consider exporting LIMB_DIGITS (and possibly also MAX_DIGITS) to Python as
- *  a module-level constant
+ *    a module-level constant
  */
 
 /* Various notes:
