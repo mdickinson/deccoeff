@@ -12,6 +12,8 @@
  *  -----
  *  write Deccoeff-specific tests
  *  improve and correct documentation
+ *  add configuration to detect presence of stdint.h and stdbool.h
+ *    and make appropriate substitutions if necessary
  *  fast recursive algorithms for multiplication, division, base conversion
  *  fix usage of stdint and stdbool
  *  implement two and three-argument pow
