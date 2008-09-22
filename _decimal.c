@@ -15,8 +15,7 @@
  *  write Deccoeff-specific tests
  *  improve and correct documentation
  *  fast recursive algorithms for multiplication, division, base conversion
- *  fix some C99isms.  (ob_limbs[0] is invalid in C89.  stdint and
- *      stdbool aren't available...)
+ *  fix usage of stdint and stdbool
  *  provide fallback for systems that don't have a 64-bit integer type
  *  implement two and three-argument pow
  *  consider exporting LIMB_DIGITS (and possibly also MAX_DIGITS) to Python as
@@ -423,10 +422,20 @@ limbs_to_longdigits(digit *b, const limb_t *a, Py_ssize_t a_size)
 
 #define MAX_DIGITS 1000000000
 
+/* N.B. We really want ob_limbs[0] in this definition, but that isn't
+   standards-compliant C (though gcc permits it).  This makes
+   computing tp_basicsize a little tricky. */
+
 typedef struct {
   PyObject_VAR_HEAD
-  limb_t ob_limbs[0];
+  limb_t ob_limbs[1];
 } deccoeff;
+
+/* XXX this results in wasted memory (DECCOEFF_BASICSIZE is too
+   large); fix me! */
+
+#define DECCOEFF_ITEMSIZE sizeof(limb_t);
+#define DECCOEFF_BASICSIZE sizeof(deccoeff);
 
 static PyTypeObject deccoeff_DeccoeffType;
 
@@ -1207,8 +1216,8 @@ static PyNumberMethods deccoeff_as_number = {
 static PyTypeObject deccoeff_DeccoeffType = {
 	PyVarObject_HEAD_INIT(&PyType_Type, 0)
 	MODULE_NAME "." CLASS_NAME,             /* tp_name */
-	sizeof(deccoeff),                       /* tp_basicsize */
-	sizeof(limb_t),                         /* tp_itemsize */
+	DECCOEFF_BASICSIZE,                     /* tp_basicsize */
+	DECCOEFF_ITEMSIZE,                      /* tp_itemsize */
 	deccoeff_dealloc,                       /* tp_dealloc */
 	0, /* tp_print */
 	0, /* tp_getattr */
