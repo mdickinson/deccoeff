@@ -62,11 +62,6 @@ typedef long digit_limb_t;
 #define LIMB_ONE ((limb_t)1)
 #define LIMB_BASE (LIMB_MAX+1)
 
-
-
-
-/* definitions used for conversion from binary to decimal and back */
-
 /* arithmetic operations on limbs */
 
 /* add with carry */

@@ -19,15 +19,6 @@
  *    a module-level constant
  */
 
-/* Various notes:
-
-   Right-hand operands to shifts are assumed to be binary.
-   Similarly, indices and slices are assumed to be given in binary.
-   This make sense assuming that the decimal exponent is going to
-   be stored in binary.
-
-*/
-
 #include "limb.h"
 #include "string.h"
 
