@@ -19,8 +19,6 @@
  *  implement two and three-argument pow
  */
 
-#include <stdint.h>
-#include <stdbool.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +26,20 @@
 #include "Python.h"
 #include "longintrepr.h"
 #include "string.h"
+#include "config.h"
+
+/* substitute for bool if necessary */
+
+#ifdef HAVE_STDBOOL_H
+#  include <stdbool.h>
+#else
+#  ifndef HAVE__BOOL
+#    define _Bool int;
+#  endif
+#  define bool _Bool;
+#  define false 0;
+#  define true 1;
+#endif
 
 /* limb_t is an integer type that can hold any integer in the range [0,
    LIMB_BASE).  double_limb_t should be able to hold any integer in the range
@@ -39,39 +51,22 @@
 
 /* Decide which types to use for limb_t and double_limb_t */
 
-#if defined(INT32_MAX) && defined(INT64_MAX)
+#if defined(HAVE_STDINT_H)
+#include <stdint.h>
+#endif
 
-/* use int32_t and int64_t if available... */
+#if defined(HAVE_INTTYPES_H)
+#include <inttypes.h>
+#endif
+
+#if (defined(INT32_MAX) || defined(int32_t)) && \
+	(defined(INT64_MAX) || defined(int64_t))
+
+/* use int32_t and int64_t if available, with 9 digits to a limb... */
 
 typedef int32_t limb_t;
 typedef int64_t double_limb_t;
 typedef int64_t digit_limb_t;
-#define LIMB_DIGITS 9
-#define LIMB_MAX ((limb_t)999999999)
-#define BASEC_P 5553
-#define BASEC_Q 11068
-#define BASECI_P 4369
-#define BASECI_Q 2192
-static limb_t powers_of_ten[LIMB_DIGITS+1] = {
-	1,
-	10,
-	100,
-	1000,
-	10000,
-	100000,
-	1000000,
-	10000000,
-	100000000,
-	1000000000
-};
-
-#elif defined(LLONG_MAX)
-
-/* ... else use long and long long... */
-
-typedef long limb_t;
-typedef long long double_limb_t;
-typedef long long digit_limb_t;
 #define LIMB_DIGITS 9
 #define LIMB_MAX ((limb_t)999999999)
 #define BASEC_P 5553
