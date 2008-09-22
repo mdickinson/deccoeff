@@ -1,0 +1,86 @@
+Deccoeff is an extension type for Python 3.0 that implements
+nonnegative decimal integers.  These integers can be used in
+arithmetic in the usual way and also treated as strings of decimal
+digits.  The main purpose of Deccoeff is to act as the coefficient
+type for Decimal instances.
+
+All questions, comments, suggestions, etc., should go to Mark
+Dickinson at dickinsm@gmail.com.
+
+This distribution also contains a version of decimal.py that's adapted
+to use the Deccoeff type, along with all the decimal tests for testing
+purposes.
+
+
+Installation instructions (unix)
+--------------------------------
+
+(1) Edit the top line of the Makefile to point to a Python 3.x
+executable.
+
+(2) ./configure && make
+
+(3) make install
+
+Then from Python you can type:
+
+
+Usage
+-----
+
+To get started, just import Deccoeff from deccoeff
+
+dickinsm$ python3.0
+Python 3.0rc1+ (py3k:66550M, Sep 22 2008, 14:47:17) 
+[GCC 4.0.1 (Apple Inc. build 5484)] on darwin
+Type "help", "copyright", "credits" or "license" for more information.
+>>> from deccoeff import Deccoeff as D
+
+Deccoeffs can be created from integers, strings, or other Deccoeffs:
+
+>>> D(2)
+Deccoeff('2')
+>>> D('1234')
+Deccoeff('1234')
+>>> D()
+Deccoeff('0')
+>>> D(D(314159))
+Deccoeff('314159')
+
+Arithmetic works as expected, except that if the result of an
+arithmetic operation would be negative then OverflowError is raised.
+
+>>> D(1729) - D(729)
+Deccoeff('1000')
+>>> D(729) - D(1729)
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+OverflowError: difference is negative
+
+A Deccoeff instance can be indexed and sliced to give an easy way to
+extract a subset of its digits.  Note that indexing works from a
+mathematical perspective: x[0] refers to the units digit of x, x[1]
+refers to the tens digit, and so on.  Thus in the usual representation
+of a nonnegative integer as a decimal string, x[0] is the *last* digit
+printed, not the first.
+
+>>> x = D(314159265357989323)
+>>> x
+Deccoeff('314159265357989323')
+>>> x[10:]
+Deccoeff('31415926')
+>>> x[1]
+Deccoeff('2')
+>>> x[:5]
+Deccoeff('89323')
+>>> x[5:]
+Deccoeff('3141592653579')
+
+As you'd expect for a decimal type, the shift operators multiply and
+divide by powers of 10, not 2.
+
+>>> x >> 10
+Deccoeff('31415926')
+>>> x << 10
+Deccoeff('3141592653579893230000000000')
+
