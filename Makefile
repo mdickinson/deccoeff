@@ -6,7 +6,7 @@ module:
 	cp build/lib*/_decimal.so .
 clean:
 	-rm -rf build/
-	-rm _decimal.o _decimal.so limb.o
+	-rm _decimal.o _decimal.so
 	-rm decimal.pyc test_decimal.pyc
 test: _decimal.so
 	$(PYTHON) test_decimal.py
@@ -19,6 +19,6 @@ profile: _decimal.so
 debug: _decimal.so
 	gdb $(PYTHON)
 
-_decimal.so: _decimal.c limb.c
+_decimal.so: _decimal.c
 	$(PYTHON) setup.py build
 	cp build/lib*/_decimal.so .
