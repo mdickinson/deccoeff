@@ -153,9 +153,9 @@ static limb_t powers_of_ten[LIMB_DIGITS] = {
    the same integer, or may not even be encoded as a C integer type).
 */
 
-#define LIMB_BASE (LIMB_MAX+1)
+#define LIMB_BASE (LIMB_MAX+(limb_t)1)
 
-void
+static void
 limb_error(const char *msg)
 {
 	fprintf(stderr, "%s\n", msg);
@@ -515,7 +515,7 @@ limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
 	if (carry)
 		scale = LIMB_ONE;
 	else
-		scale = limb_div(&scale, LIMB_ONE, LIMB_ZERO, scale);
+		scale = limb_div(&dummy, LIMB_ONE, LIMB_ZERO, scale);
 
 	/* scale a and b */
 	top = limbs_mul1(w, b, b_size, scale);
@@ -663,7 +663,7 @@ limbs_from_string(limb_t *a, const char *s, Py_ssize_t s_len)
 			acc = LIMB_ZERO;
 		}
 	}
-	assert(digits_in_limb = LIMB_DIGITS);
+	assert(digits_in_limb == LIMB_DIGITS);
 	return false;
 }
 
