@@ -279,17 +279,7 @@ limb_dsr(limb_t x) {
 	return i;
 }
 
-/* retrieve the value of a particular digit, as a limb_t */
-
-static limb_t
-limb_getdigit(limb_t x, Py_ssize_t n)
-{
-	if (!(0 <= n && n < 9))
-		limb_error("invalid digit in limb_getdigit");
-	return (x / powers_of_ten[n]) % 10;
-}
-
-/* #undef LIMB_BASE; */
+#undef LIMB_BASE;
 
 
 /*******************************
@@ -392,11 +382,15 @@ limb_rshift(limb_t *res, limb_t a, Py_ssize_t n, limb_t b) {
    limb holds some constant number of digits; that constant is called
    LIMB_DIGITS below.
 
-   The C type 'limb' should be large enough to hold a single digit in
-   this base: i.e. all numbers in the range [0, BASE).  Type
-   'double_limb' should be large enough to hold all numbers in the
-   range [0, BASE*BASE).
-*/
+static limb_t
+limb_getdigit(limb_t x, Py_ssize_t n)
+{
+	limb_t q, dummy;
+	if (!(0 <= n && n < 9))
+		limb_error("invalid digit in limb_getdigit");
+	q = limb_div(&dummy, LIMB_ZERO, x, powers_of_ten[n]);
+	return limb_mask(q, 1);
+}
 
 /*********************************
  * Arithmetic on arrays of limbs *
