@@ -123,7 +123,6 @@ static limb_t powers_of_ten[LIMB_DIGITS] = {
 #define LIMB_ZERO ((limb_t)0)
 #define LIMB_ONE ((limb_t)1)
 #define LIMB_TWO ((limb_t)2)
-#define LIMB_BASE (LIMB_MAX+1)
 
 /*
   The rest of this file is organized in three parts.  First we have primitive
@@ -153,6 +152,8 @@ static limb_t powers_of_ten[LIMB_DIGITS] = {
    == (some encodings may not be monotonic, or may have redundant encodings of
    the same integer, or may not even be encoded as a C integer type).
 */
+
+#define LIMB_BASE (LIMB_MAX+1)
 
 void
 limb_error(const char *msg)
@@ -288,6 +289,9 @@ limb_getdigit(limb_t x, Py_ssize_t n)
 	return (x / powers_of_ten[n]) % 10;
 }
 
+/* #undef LIMB_BASE; */
+
+
 /*******************************
  * Derived operations on limbs *
  *******************************/
@@ -314,6 +318,12 @@ limb_le(limb_t a, limb_t b)
 {
 	limb_t dummy;
 	return limb_sbb(&dummy, a, b, true);
+}
+
+static bool
+limb_bool(limb_t a)
+{
+	return limb_lt(LIMB_ZERO, a);
 }
 
 /* extract bottom n digits of a limb */
@@ -508,7 +518,7 @@ limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
 
 	/* top limb of b should be nonzero; a should contain at least as many
 	   limbs as b */
-	assert(a_size >= b_size && !limb_eq(b[b_size-1], LIMB_ZERO));
+	assert(a_size >= b_size && b_size > 0 && limb_bool(b[b_size-1]));
 
 	/* compute scale factor for normalization: floor(LIMB_BASE /
 	   (b_top+1)) */
@@ -521,13 +531,13 @@ limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
 	/* scale a and b */
 	top = limbs_mul1(w, b, b_size, scale);
 	bb = w;
-	assert(limb_eq(top, LIMB_ZERO));
+	assert(!limb_bool(top));
 
 	top = limbs_mul1(w+b_size, a, a_size, scale);
 	aa = w+b_size;
 
 	/* catch most cases where quotient only needs a_size-b_size limbs */
-	if (limb_eq(top, LIMB_ZERO) && limb_lt(aa[a_size-1], bb[b_size-1]))
+	if (!limb_bool(top) && limb_lt(aa[a_size-1], bb[b_size-1]))
 		quot[a_size-b_size] = LIMB_ZERO;
 	else {
 		aa[a_size] = top;
@@ -541,10 +551,10 @@ limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
 		a_top = aa[b_size];
 		assert(limb_le(a_top, b_top));
 		/* quotient q = aa / bb; may be overestimate */
-		if (limb_eq(a_top, b_top))
-			q = LIMB_MAX;
-		else
+		if (limb_lt(a_top, b_top))
 			q = limb_div(&dummy, a_top, aa[b_size-1], b_top);
+		else
+			q = LIMB_MAX;
 		/* compute bottom b_size limbs of aa[j:] - q*bb */
 		top = limbs_mul1(rem, bb, b_size, q);
 		carry = limbs_sub(aa, aa, rem, b_size);
@@ -562,7 +572,7 @@ limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
 		quot[j] = q;
 	}
 	top = limbs_div1(rem, aa, b_size, LIMB_ZERO, scale);
-	assert(limb_eq(top, LIMB_ZERO));
+	assert(!limb_bool(top));
 }
 
 /* shift a_size-limb number left n digits (shifting zeros in); i.e., multiply
@@ -710,7 +720,7 @@ limbs_to_longdigits(digit *b, const limb_t *a, Py_ssize_t a_size)
 		high = a[i];
 		for (j = 0; j < b_size; j++)
 			b[j] = digit_limb_swap(&high, b[j], high);
-		while (!limb_eq(high, LIMB_ZERO))
+		while (limb_bool(high))
 			b[b_size++] = digit_limb_swap(&high, 0, high);
 	}
 	return b_size;
@@ -763,7 +773,7 @@ deccoeff_normalize(deccoeff *v)
 {
 	Py_ssize_t v_size;
 	v_size = Py_SIZE(v);
-	while (v_size > 0 && limb_eq(v->ob_limbs[v_size-1], LIMB_ZERO))
+	while (v_size > 0 && !limb_bool(v->ob_limbs[v_size-1]))
 		--v_size;
 	Py_SIZE(v) = v_size;
 	return v;
@@ -1140,9 +1150,9 @@ _deccoeff_power(deccoeff *a, deccoeff *bb, deccoeff *c)
 		/* invariant quantity: apow**b*acc == a**bb. */
 		lowbit = limbs_div1(b_limbs, b_limbs, b_size, LIMB_ZERO,
 				    LIMB_TWO);
-		if (limb_eq(b_limbs[b_size-1], LIMB_ZERO))
+		if (!limb_bool(b_limbs[b_size-1]))
 			b_size--;
-		if (limb_eq(lowbit, LIMB_ONE)) {
+		if (limb_bool(lowbit)) {
 			/* acc *= apow */
 			if (c == NULL)
 				temp = _deccoeff_multiply(apow, acc);
@@ -1626,8 +1636,8 @@ deccoeff_str(deccoeff *v)
 	}
 	/* most significant limb_t */
 	limb_value = *limb_pointer;
-	assert(!limb_eq(limb_value, LIMB_ZERO));
-	while (!limb_eq(limb_value, LIMB_ZERO))
+	assert(limb_bool(limb_value));
+	while (limb_bool(limb_value))
 		*--p = limb_to_digit(
 			limb_rshift(&limb_value, limb_value, 1, LIMB_ZERO));
 	return str;
