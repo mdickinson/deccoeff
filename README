@@ -34,7 +34,8 @@ dickinsm$ python3.0
 Python 3.0rc1+ (py3k:66550M, Sep 22 2008, 14:47:17) 
 [GCC 4.0.1 (Apple Inc. build 5484)] on darwin
 Type "help", "copyright", "credits" or "license" for more information.
->>> from deccoeff import Deccoeff as D
+>>> from deccoeff import *
+>>> D = Deccoeff
 
 Deccoeffs can be created from integers, strings, or other Deccoeffs:
 
@@ -50,6 +51,8 @@ Deccoeff('314159')
 Arithmetic works as expected, except that if the result of an
 arithmetic operation would be negative then OverflowError is raised.
 
+>>> D(23)**D(12)
+Deccoeff('21914624432020321')
 >>> D(1729) - D(729)
 Deccoeff('1000')
 >>> D(729) - D(1729)
@@ -57,12 +60,32 @@ Traceback (most recent call last):
   File "<stdin>", line 1, in <module>
 OverflowError: difference is negative
 
+Deccoeff instances play nicely with other integer types, giving
+a Deccoeff result.
+
+>>> D(1234567) % 100
+Deccoeff('67')
+
+There's an upper bound on the number of decimal digits a Deccoeff
+can have;  it's made available to Python as deccoeff.MAX_DIGITS.
+
+>>> print(MAX_DIGITS)
+1000000000
+>>> x = D(1) << (MAX_DIGITS - 1)  # fine
+>>> y = D(1) << MAX_DIGITS
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+OverflowError: Deccoeff instance has too many digits
+[32860 refs]
+
 A Deccoeff instance can be indexed and sliced to give an easy way to
 extract a subset of its digits.  Note that indexing works from a
 mathematical perspective: x[0] refers to the units digit of x, x[1]
 refers to the tens digit, and so on.  Thus in the usual representation
 of a nonnegative integer as a decimal string, x[0] is the *last* digit
-printed, not the first.
+printed, not the first.  The builtin function len, when applied to a
+Deccoeff, gives the number of decimal digits needed to print that
+Deccoeff, or 0 if the Deccoeff instance is zero.
 
 >>> x = D(314159265357989323)
 >>> x
@@ -75,6 +98,11 @@ Deccoeff('2')
 Deccoeff('89323')
 >>> x[5:]
 Deccoeff('3141592653579')
+>>> len(x)
+18
+
+Note however that the start and stop arguments to the slice must be
+nonnegative, and that the step argument is not supported.
 
 As you'd expect for a decimal type, the shift operators multiply and
 divide by powers of 10, not 2.
@@ -84,3 +112,10 @@ Deccoeff('31415926')
 >>> x << 10
 Deccoeff('3141592653579893230000000000')
 
+Internally, a Deccoeff instance is stored as an array of coefficients
+in base 10**LIMB_DIGITS, for some value of LIMB_DIGITS.  While there's
+little reason for the user to care about the value of LIMB_DIGITS, it
+can be accessed as deccoeff.LIMB_DIGITS.
+
+>>> LIMB_DIGITS
+9
