@@ -279,7 +279,7 @@ limb_msd(limb_t x) {
 	return i;
 }
 
-#undef LIMB_BASE;
+#undef LIMB_BASE
 
 
 /*******************************
