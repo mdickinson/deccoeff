@@ -1,7 +1,7 @@
 AC_PREREQ(2.61)
 AC_INIT(deccoeff, 0.2)
 
-AC_CONFIG_HEADERS(config.h)
+AC_CONFIG_HEADERS(deccoeff_config.h)
 
 dnl checks for header files
 

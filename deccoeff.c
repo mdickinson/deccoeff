@@ -1,7 +1,8 @@
 /*
- * Module implementing arbitrary-precision natural number arithmetic
- * in a decimal base.  As the name 'deccoeff' suggests, these numbers
- * are intended to be used as the coefficients for Decimal instances.
+ * deccoeff.Deccoeff is a class implementing arbitrary-precision
+ * unsigned integer arithmetic in a decimal base.  As the name
+ * 'deccoeff' suggests, these numbers are intended to be used as the
+ * coefficients for Decimal instances.
  *
  * Author: Mark Dickinson.  Licensed to the PSF under a Contributor
  * Agreement.
@@ -18,9 +19,10 @@
 
 #include "Python.h"
 #include "longintrepr.h"
-#include "config.h"
+#include "deccoeff_config.h"
 
-/* substitute for bool if necessary */
+/* include stdbool.h if present, else define substitutes for
+   bool, true and false */
 
 #ifdef HAVE_STDBOOL_H
 #  include <stdbool.h>
@@ -33,15 +35,26 @@
 #  define true 1;
 #endif
 
-/* limb_t is an integer type that can hold any integer in the range [0,
+/*
+   A Deccoeff instance is stored internally in base LIMB_BASE =
+   10**LIMB_DIGITS, as an array of limbs (least significant first).
+   LIMB_DIGITS is 9 if 32-bit and 64-bit integer types are available (as they
+   should be on almost all modern machines); otherwise it's 4.
+
+   Here we define the various types and constants needed.
+
+   limb_t should be an integer type that can hold any integer in the range [0,
    LIMB_BASE).  double_limb_t should be able to hold any integer in the range
-   [0, LIMB_BASE*LIMB_BASE), while digit_limb_t should be able to hold any
-   integer in the range [0, LIMB_BASE*PyLong_BASE).
+   [0, LIMB_BASE*LIMB_BASE).  Type digit_limb_t is used for base conversion
+   from base 2 to base 10 and back again and should be able to hold any
+   integer in the range [0, LIMB_BASE * PyLong_BASE).
 
-   BASEC_P/BASEC_Q is an upper bound for log(PyLong_BASE)/log(LIMB_BASE);
-   BASECI_P/BASECI_Q is an upper bound for log(LIMB_BASE)/log(PyLong_BASE). */
-
-/* Decide which types to use for limb_t and double_limb_t */
+   BASEC_P/BASEC_Q is an upper bound for log(PyLong_BASE)/log(LIMB_BASE).
+   BASECI_P/BASECI_Q is an upper bound for log(LIMB_BASE)/log(PyLong_BASE).
+   These upper bounds are used for determining how much memory to allocate
+   when doing base conversion.  BASEC_P * BASEC_Q and BASECI_P * BASECI_Q
+   should fit comfortably in a Py_ssize_t.
+*/
 
 #if defined(HAVE_STDINT_H)
 #include <stdint.h>
@@ -54,13 +67,14 @@
 #if (defined(INT32_MAX) || defined(int32_t)) && \
 	(defined(INT64_MAX) || defined(int64_t))
 
-/* use int32_t and int64_t if available, with 9 digits to a limb... */
+/* use int32_t for limb_t and int64_t for double_limb_t if available,
+   with 9 digits to a limb... */
 
 typedef int32_t limb_t;
 typedef int64_t double_limb_t;
 typedef int64_t digit_limb_t;
 #define LIMB_DIGITS 9
-#define LIMB_MAX ((limb_t)999999999)
+#define LIMB_MAX ((limb_t)999999999)  /* 10**LIMB_DIGITS - 1 */
 #define BASEC_P 5553
 #define BASEC_Q 11068
 #define BASECI_P 4369
@@ -106,29 +120,34 @@ static limb_t powers_of_ten[LIMB_DIGITS+1] = {
 #define LIMB_TWO ((limb_t)2)
 #define LIMB_BASE (LIMB_MAX+1)
 
-
 /*
-   Base operations for Deccoeff type.  Definition of single limbs, and
-   operations to work with single limbs.
+  The rest of this file is organized in three parts.  First we have primitive
+  operations on single limbs (arithmetic, shifts, etc.)---e.g. limb_adc,
+  limb_fma, ....  This is followed by functions defining operations on arrays
+  of limbs (limbs_add, limbs_multiply, ...); these functions contain the
+  necessary mathematical algorithms, but know nothing about allocating memory,
+  raising exceptions, converting types, etc.  Lastly we have functions
+  providing the deccoeff operations.
+*/
 
-   The two files limbs.c and limbs.h are supposed to encapsulate everything
-   related to the representation of limbs; other code should be independent of
-   the limb representation, only needing to know the number of digits in each
-   limb.
 
-   So for example it should be easy to change the implementation to use a
-   16-bit limb with 4 digits per limb, or a 64-bit limb containing 18 or 19
-   digits per limb (this might work well on 64-bit architectures like x86-64),
-   or a binary-coded decimal or densely-packed decimal representation, or even
-   a string of digits, or ...
+/*********************************
+ * Primitive operations on limbs *
+ *********************************/
 
-   In particular, other code should not assume that limbs can be operated on
+/* The idea behind this section is that it should be easy to change the
+   underlying representation of a limb without greatly affecting the rest of
+   the code.  For example, on a 64-bit platform one might want to experiment
+   with a 64-bit limb containing 18 or 19 digits per limb, or one might want
+   to use alternative encodings like binary-coded decimal or densely packed
+   decimal.  In that case, only this section should have to be changed; all
+   following code uses only these primitive operations to operate on limbs.
+
+   In particular, later code should not assume that limbs can be operated on
    using the usual arithmetic operators, or that they are comparable with < or
    == (some encodings may not be monotonic, or may have redundant encodings of
    the same integer, or may not even be encoded as a C integer type).
 */
-
-/* XXX replace limb_error with Py_FataError eventually */
 
 void
 limb_error(const char *msg)
@@ -137,8 +156,7 @@ limb_error(const char *msg)
 	abort();
 }
 
-/* add with carry: compute a + b + c, put result in *r and return
-   the new carry. */
+/* add with carry: compute a + b + c; put sum in *r and return new carry. */
 
 static bool
 limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
@@ -156,8 +174,8 @@ limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 	}
 }
 
-/* subtract with borrow:  compute a - (b + c); put result in *r
-   and return the carry. */
+/* subtract with borrow: compute a - (b + c); put result in *r and return the
+   carry (true if a - (b+c) < 0, false otherwise). */
 
 static bool
 limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
@@ -174,7 +192,7 @@ limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
 	}
 }
 
-/* comparisons between limbs */
+/* test limb equality */
 
 static bool
 limb_eq(limb_t a, limb_t b)
@@ -182,9 +200,8 @@ limb_eq(limb_t a, limb_t b)
 	return a == b;
 }
 
-/* multiply and add with two addends; this is useful for long
-   multiplication.  Store the low part of the result in *low, and return
-   the high part. */
+/* multiply and add with two addends; this is useful for long multiplication.
+   Store the low part of the result in *low, and return the high part. */
 
 static limb_t
 limb_fmaa(limb_t *low, limb_t a, limb_t b, limb_t c, limb_t d) {
@@ -194,28 +211,27 @@ limb_fmaa(limb_t *low, limb_t a, limb_t b, limb_t c, limb_t d) {
 	return (limb_t)(hilo/LIMB_BASE);
 }
 
-/* division: divide high*BASE+low by c, giving a quotient (returned)
-   and a remainder (stored in *rem).  Requires that high < c (and
-   hence that c is nonzero). */
+/* division: divide high*BASE+low by c.  Return the quotient and stored
+   remainder in *rem.  Requires that high < c. */
 
 static limb_t
 limb_div(limb_t *rem, limb_t high, limb_t low, limb_t c) {
 	double_limb_t hilo;
 	if (high >= c)
-		limb_error("invalid division");
+		limb_error("limb_div: invalid division");
 	hilo = (double_limb_t)high * LIMB_BASE + low;
 	*rem = (limb_t)(hilo%c);
 	return (limb_t)(hilo/c);
 }
 
-/* return index of most significant digit of given limb;
-   result is undefined if the limb is 0 */
+/* return index of most significant digit of given limb; result is undefined
+   if the limb is 0 */
 
 static Py_ssize_t
 limb_dsr(limb_t x) {
 	Py_ssize_t i;
 	if (x == 0)
-		limb_error("0 has no most significant digit");
+		limb_error("limb_dsr: zero argument");
 	for (i=0; powers_of_ten[i] <= x; i++);
 	return i;
 }
@@ -225,8 +241,17 @@ limb_dsr(limb_t x) {
 static limb_t
 limb_sar(limb_t x, Py_ssize_t n) {
 	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("invalid shift count in limb_sar");
+		limb_error("limb_sar: invalid shift count");
 	return x / powers_of_ten[n];
+}
+
+/* shift a limb left n places (0 <= n <= LIMB_DIGITS) */
+
+static limb_t
+limb_sal(limb_t x, Py_ssize_t n) {
+	if (!(0 <= n && n <= LIMB_DIGITS))
+		limb_error("invalid shift count in limb_sal");
+	return x % powers_of_ten[LIMB_DIGITS-n] * powers_of_ten[n];
 }
 
 /* rotate right and split; like limb_sar, but also puts piece that was shifted
@@ -250,15 +275,6 @@ limb_splitl(limb_t *res, limb_t x, Py_ssize_t n) {
 	return x % powers_of_ten[LIMB_DIGITS-n] * powers_of_ten[n];
 }
 
-/* shift a limb left n places (0 <= n <= LIMB_DIGITS) */
-
-static limb_t
-limb_sal(limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("invalid shift count in limb_sal");
-	return x % powers_of_ten[LIMB_DIGITS-n] * powers_of_ten[n];
-}
-
 /* select the bottom n digits of a limb (0 <= n <= LIMB_DIGITS) */
 
 static limb_t
@@ -267,6 +283,8 @@ limb_low(limb_t x, Py_ssize_t n) {
 		limb_error("invalid shift count in limb_low");
 	return x % powers_of_ten[n];
 }
+
+/* result := x * 10 + i */
 
 static limb_t
 limb_shift_digit_in(limb_t x, int i) {
@@ -277,6 +295,8 @@ limb_shift_digit_in(limb_t x, int i) {
 	return x * 10 + (limb_t)i;
 }
 
+/* return a % 10, and put a // 10 in *x */
+
 static int
 limb_shift_digit_out(limb_t *x, limb_t a) {
 	int result;
@@ -284,6 +304,8 @@ limb_shift_digit_out(limb_t *x, limb_t a) {
 	*x = a / 10;
 	return result;
 }
+
+/* retrieve the value of a particular digit, as a limb_t */
 
 static limb_t
 limb_getdigit(limb_t x, Py_ssize_t n)
@@ -293,42 +315,55 @@ limb_getdigit(limb_t x, Py_ssize_t n)
 	return (x / powers_of_ten[n]) % 10;
 }
 
+/* The following two functions are used in base conversion.  Any value n in
+   the range [0, LIMB_BASE * PyLong_BASE) can be written either in the form
 
-/* type digit_limb_t is an integer type large enough to hold
-   any value in the range [0, LIMB_BASE * PyLong_BASE] */
+     n = a * LIMB_BASE + b     'digit-limb'
 
-/* given limb a and digit pair b, write a*2**30 + b in the form
-   c*LIMB_BASE + d, with c a digit pair and d a limb.  Return c and
-   put d in *low. */
+   with 0 <= a < PyLong_BASE, 0 <= b < LIMB_BASE, or in the form
 
-static digit
-limb_digit_swap(limb_t *low, limb_t a, digit b)
-{
-	digit_limb_t hilo;
-	hilo = ((digit_limb_t)a << PyLong_SHIFT) + b;
-	*low = (limb_t)(hilo%LIMB_BASE);
-	return (digit)(hilo/LIMB_BASE);
-}
+     n = c * PyLong_BASE + d    'limb-digit'
 
-/* reverse of the above: given a digit pair a and limb b, write LIMB_BASE*a +
-   b in the form c*(2**30) + d, c a limb and d a digit pair.  Return c and put
-   d in *low. */
+   with 0 <= c < LIMB_BASE, 0 <= d < PyLong_BASE.  digit_limb_swap converts
+   from the first form to the second, limb_digit_swap does the reverse. */
 
 static limb_t
-digit_limb_swap(digit *low, digit a, limb_t b)
+digit_limb_swap(digit *d, digit a, limb_t b)
 {
 	digit_limb_t hilo;
+	limb_t c;
 	hilo = (digit_limb_t)a * LIMB_BASE + b;
-	*low = (digit)(hilo & PyLong_MASK);
-	return (limb_t)(hilo >> PyLong_SHIFT);
+	c = (limb_t)(hilo >> PyLong_SHIFT);
+	*d = (digit)(hilo & PyLong_MASK);
+	return c;
 }
 
-static unsigned long
+static digit
+limb_digit_swap(limb_t *b, limb_t c, digit d)
+{
+	digit_limb_t hilo;
+	digit a;
+	hilo = ((digit_limb_t)c << PyLong_SHIFT) + d;
+	a = (digit)(hilo / LIMB_BASE);
+	*b = (limb_t)(hilo % LIMB_BASE);
+	return a;
+}
+
+/* get a hash value from a limb */
+
+static long
 limb_hash(limb_t x) {
-	return (unsigned long)x;
+	return (long)x;
 }
 
-/* derived operations */
+/*******************************
+ * Derived operations on limbs *
+ *******************************/
+
+/* These limb operations are derived from the primitive operations above, and
+   provided for convenience. */
+
+/* comparisons */
 
 /* a < b iff a - b overflows */
 
@@ -348,22 +383,6 @@ limb_le(limb_t a, limb_t b)
 	return limb_sbb(&dummy, a, b, true);
 }
 
-/* helpers for base conversion
-
-   given positive integers M and N, any x in range(0, M*N) can be
-   represented uniquely in the form
-
-     a*M + b,  0 <= a < N,  0 <= b < M
-
-   and also in the form
-
-     c*N + d, 0 <= c < M,  0 <= d < N.
-
-  The following two functions convert from one representation to the
-  other, in the particular case where M is 2**30 and N is LIMB_BASE.
-  These two operations are exactly the primitive operations needed for
-  binary<->decimal base conversion. */
-
 /*
    deccoeffs are represented in base BASE, for BASE a suitable power of 10.
    I'll use the word 'limb' to refer to a base BASE digit, and 'digit' to
@@ -376,9 +395,6 @@ limb_le(limb_t a, limb_t b)
    'double_limb' should be large enough to hold all numbers in the
    range [0, BASE*BASE).
 */
-
-#define MODULE_NAME "deccoeff"
-#define CLASS_NAME "Deccoeff"
 
 /*********************************
  * Arithmetic on arrays of limbs *
@@ -751,6 +767,9 @@ limbs_to_longdigits(digit *b, const limb_t *a, Py_ssize_t a_size)
 /**************************
  * deccoeff : definitions *
  **************************/
+
+#define MODULE_NAME "deccoeff"
+#define CLASS_NAME "Deccoeff"
 
 /* We place an upper bound MAX_DIGITS on the number of decimal digits (*not*
    the number of limbs) in a deccoeff.  MAX_DIGITS should fit into a
@@ -1680,6 +1699,8 @@ deccoeff_dealloc(PyObject *v)
 	Py_TYPE(v)->tp_free(v);
 }
 
+/* XXX fix this to give a 64-bit hash on 64-bit systems */
+
 #define HASH_SHIFT 13
 #define HASH_MASK ((1<<HASH_SHIFT) - 1)
 #define HASH_START 1887730231
@@ -1704,7 +1725,7 @@ deccoeff_hash(deccoeff *v)
 	while (v_top > v_start) {
 		x = ((x & ~HASH_MASK) >> HASH_SHIFT) |
 			((x & HASH_MASK) << (HASH_BITS-HASH_SHIFT));
-		x ^= limb_hash(*--v_top);
+		x ^= (unsigned long)limb_hash(*--v_top);
 	}
 
 	y = (long)x;

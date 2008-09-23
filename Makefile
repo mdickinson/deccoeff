@@ -11,6 +11,10 @@ clean:
 	-rm config.status config.log config.h
 	-rm -fr autom4te.cache/
 
+distclean: clean
+	-rm deccoeff_config.h.in
+	-rm configure
+
 test: deccoeff.so
 	$(PYTHON) test_decimal.py
 
