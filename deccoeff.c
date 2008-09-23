@@ -375,12 +375,7 @@ limb_rshift(limb_t *res, limb_t a, Py_ssize_t n, limb_t b) {
 	}
 }
 
-/*
-   deccoeffs are represented in base BASE, for BASE a suitable power of 10.
-   I'll use the word 'limb' to refer to a base BASE digit, and 'digit' to
-   refer to a usual decimal digit in the range 0 through 9.  Thus a single
-   limb holds some constant number of digits; that constant is called
-   LIMB_DIGITS below.
+/* retrieve the value of a particular digit, as a limb_t */
 
 static limb_t
 limb_getdigit(limb_t x, Py_ssize_t n)
