@@ -1502,14 +1502,14 @@ deccoeff_from_PyLong(PyLongObject *a)
 	a_size = Py_SIZE(a);
 	if (a_size < 0) {
 		PyErr_SetString(PyExc_OverflowError,
-				"Can't convert negative integer to deccoeff");
+				"Can't convert negative integer to Deccoeff");
 		return NULL;
 	}
 
 	z_size = scale_Py_ssize_t(a_size, BASEC_P, BASEC_Q);
 	if (z_size == -1)
 		PyErr_SetString(PyExc_OverflowError,
-				"Overflow in int to deccoeff conversion\n");
+				"Overflow in int to Deccoeff conversion\n");
 	z = _deccoeff_new(z_size);
 	if (z==NULL)
 		return NULL;
@@ -1527,7 +1527,7 @@ deccoeff_long(deccoeff *a)
 	z_size = scale_Py_ssize_t(a_size, BASECI_P, BASECI_Q);
 	if (z_size == -1)
 		PyErr_SetString(PyExc_OverflowError,
-				"Overflow in deccoeff to int conversion\n");
+				"Overflow in Deccoeff to int conversion\n");
 	z = _PyLong_New(z_size);
 	if (z == NULL)
 		return NULL;
