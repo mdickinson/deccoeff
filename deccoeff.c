@@ -86,7 +86,7 @@ typedef int64_t digit_limb_t;
 #define BASEC_Q 11068
 #define BASECI_P 4369
 #define BASECI_Q 2192
-static limb_t powers_of_ten[LIMB_DIGITS+1] = {
+static limb_t powers_of_ten[LIMB_DIGITS] = {
 	1,
 	10,
 	100,
@@ -95,8 +95,7 @@ static limb_t powers_of_ten[LIMB_DIGITS+1] = {
 	100000,
 	1000000,
 	10000000,
-	100000000,
-	1000000000
+	100000000
 };
 
 #else
@@ -112,12 +111,11 @@ typedef long digit_limb_t;
 #define BASEC_Q 6649
 #define BASECI_P 1717
 #define BASECI_Q 1521
-static limb_t powers_of_ten[LIMB_DIGITS+1] = {
+static limb_t powers_of_ten[LIMB_DIGITS] = {
 	1,
 	10,
 	100,
-	1000,
-	10000
+	1000
 };
 
 #endif
@@ -199,14 +197,6 @@ limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
 	}
 }
 
-/* test limb equality */
-
-static bool
-limb_eq(limb_t a, limb_t b)
-{
-	return a == b;
-}
-
 /* multiply and add with two addends; this is useful for long multiplication.
    Store the low part of the result in *low, and return the high part. */
 
@@ -231,95 +221,12 @@ limb_div(limb_t *rem, limb_t high, limb_t low, limb_t c) {
 	return (limb_t)(hilo/c);
 }
 
-/* return index of most significant digit of given limb; result is undefined
-   if the limb is 0 */
+/* test limb equality */
 
-static Py_ssize_t
-limb_dsr(limb_t x) {
-	Py_ssize_t i;
-	if (x == 0)
-		limb_error("limb_dsr: zero argument");
-	for (i=0; powers_of_ten[i] <= x; i++);
-	return i;
-}
-
-/* shift a limb right n places (0 <= n <= LIMB_DIGITS) */
-
-static limb_t
-limb_sar(limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("limb_sar: invalid shift count");
-	return x / powers_of_ten[n];
-}
-
-/* shift a limb left n places (0 <= n <= LIMB_DIGITS) */
-
-static limb_t
-limb_sal(limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("invalid shift count in limb_sal");
-	return x % powers_of_ten[LIMB_DIGITS-n] * powers_of_ten[n];
-}
-
-/* rotate right and split; like limb_sar, but also puts piece that was shifted
-   out into the top of *res */
-
-static limb_t
-limb_split(limb_t *res, limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("invalid shift count in limb_split");
-	*res = x % powers_of_ten[n] * powers_of_ten[LIMB_DIGITS-n];
-	return x / powers_of_ten[n];
-}
-
-/* rotate left and split */
-
-static limb_t
-limb_splitl(limb_t *res, limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("invalid shift count in limb_splitl");
-	*res = x / powers_of_ten[LIMB_DIGITS-n];
-	return x % powers_of_ten[LIMB_DIGITS-n] * powers_of_ten[n];
-}
-
-/* select the bottom n digits of a limb (0 <= n <= LIMB_DIGITS) */
-
-static limb_t
-limb_low(limb_t x, Py_ssize_t n) {
-	if (!(0 <= n && n <= LIMB_DIGITS))
-		limb_error("invalid shift count in limb_low");
-	return x % powers_of_ten[n];
-}
-
-/* result := x * 10 + i */
-
-static limb_t
-limb_shift_digit_in(limb_t x, int i) {
-	if (!(0 <= i && i <= 9))
-		limb_error("invalid digit in limb_shift_digit_in");
-	if (x >= LIMB_BASE/10)
-		x %= LIMB_BASE/10;
-	return x * 10 + (limb_t)i;
-}
-
-/* return a % 10, and put a // 10 in *x */
-
-static int
-limb_shift_digit_out(limb_t *x, limb_t a) {
-	int result;
-	result = a % 10;
-	*x = a / 10;
-	return result;
-}
-
-/* retrieve the value of a particular digit, as a limb_t */
-
-static limb_t
-limb_getdigit(limb_t x, Py_ssize_t n)
+static bool
+limb_eq(limb_t a, limb_t b)
 {
-	if (!(0 <= n && n < 9))
-		limb_error("invalid digit in limb_getdigit");
-	return (x / powers_of_ten[n]) % 10;
+	return a == b;
 }
 
 /* The following two functions are used in base conversion.  Any value n in
@@ -334,26 +241,22 @@ limb_getdigit(limb_t x, Py_ssize_t n)
    with 0 <= c < LIMB_BASE, 0 <= d < PyLong_BASE.  digit_limb_swap converts
    from the first form to the second, limb_digit_swap does the reverse. */
 
-static limb_t
-digit_limb_swap(digit *d, digit a, limb_t b)
+static digit
+digit_limb_swap(limb_t *c, digit a, limb_t b)
 {
 	digit_limb_t hilo;
-	limb_t c;
 	hilo = (digit_limb_t)a * LIMB_BASE + b;
-	c = (limb_t)(hilo >> PyLong_SHIFT);
-	*d = (digit)(hilo & PyLong_MASK);
-	return c;
+	*c = (limb_t)(hilo >> PyLong_SHIFT);
+	return (digit)(hilo & PyLong_MASK);
 }
 
-static digit
-limb_digit_swap(limb_t *b, limb_t c, digit d)
+static limb_t
+limb_digit_swap(digit *a, limb_t c, digit d)
 {
 	digit_limb_t hilo;
-	digit a;
 	hilo = ((digit_limb_t)c << PyLong_SHIFT) + d;
-	a = (digit)(hilo / LIMB_BASE);
-	*b = (limb_t)(hilo % LIMB_BASE);
-	return a;
+	*a = (digit)(hilo / LIMB_BASE);
+	return (limb_t)(hilo % LIMB_BASE);
 }
 
 /* get a hash value from a limb */
@@ -363,12 +266,35 @@ limb_hash(limb_t x) {
 	return (long)x;
 }
 
+/* return index of most significant digit of given limb; result is undefined
+   if the limb is 0 */
+
+static Py_ssize_t
+limb_dsr(limb_t x) {
+	Py_ssize_t i;
+	if (x == 0)
+		limb_error("limb_dsr: zero argument");
+	for (i=0; i < LIMB_DIGITS && powers_of_ten[i] <= x; i++);
+	return i;
+}
+
+/* retrieve the value of a particular digit, as a limb_t */
+
+static limb_t
+limb_getdigit(limb_t x, Py_ssize_t n)
+{
+	if (!(0 <= n && n < 9))
+		limb_error("invalid digit in limb_getdigit");
+	return (x / powers_of_ten[n]) % 10;
+}
+
 /*******************************
  * Derived operations on limbs *
  *******************************/
 
 /* These limb operations are derived from the primitive operations above, and
-   provided for convenience. */
+   provided for convenience.  There is no need to change these if/when the
+   representation of a limb_t changes. */
 
 /* comparisons */
 
@@ -388,6 +314,65 @@ limb_le(limb_t a, limb_t b)
 {
 	limb_t dummy;
 	return limb_sbb(&dummy, a, b, true);
+}
+
+/* extract bottom n digits of a limb */
+
+static limb_t
+limb_mask(limb_t a, Py_ssize_t n)
+{
+	if (!(0 <= n && n <= LIMB_DIGITS))
+		limb_error("limb_mask: invalid count");
+	if (n < LIMB_DIGITS)
+		limb_div(&a, LIMB_ZERO, a, powers_of_ten[n]);
+	return a;
+}
+
+/* convert a character in the range '0' through '9' into a limb and back */
+
+static limb_t
+digit_to_limb(char d)
+{
+	digit dummy;
+	return limb_digit_swap(&dummy, LIMB_ZERO, (digit)(d - '0'));
+}
+
+static char
+limb_to_digit(limb_t b)
+{
+	limb_t dummy;
+	return '0' + (char)digit_limb_swap(&dummy, 0, b);
+}
+
+/* res = a << n + b, b < 10**n.  Returns part shifted out. */
+
+static limb_t
+limb_lshift(limb_t *res, limb_t a, Py_ssize_t n, limb_t b) {
+	if (!(0 <= n && n <= LIMB_DIGITS))
+		limb_error("limb_lshift: invalid shift index");
+	if (LIMB_DIGITS == n) {
+		*res = b;
+		return a;
+	}
+	else
+		return limb_fmaa(res, a, powers_of_ten[n], b, LIMB_ZERO);
+}
+
+/* res = (a + b*LIMB_BASE) >> n, b < 10**n.  Returns part shifted out. */
+
+static limb_t
+limb_rshift(limb_t *res, limb_t a, Py_ssize_t n, limb_t b) {
+	limb_t rem;
+	if (!(0 <= n && n <= LIMB_DIGITS))
+		limb_error("limb_lshift: invalid shift index");
+	if (LIMB_DIGITS == n) {
+		*res = b;
+		return a;
+	}
+	else {
+		*res = limb_div(&rem, b, a, powers_of_ten[n]);
+		return rem;
+	}
 }
 
 /*
@@ -411,8 +396,8 @@ limb_le(limb_t a, limb_t b)
    don't take care of memory allocation; they assume that sufficient space is
    provided for their results. */
 
-/* increment n-limb number a if carry is true, else just copy it; gives n-limb
-   result and returns a carry */
+/* increment a_size-limb number a if carry is true, else just copy it; gives
+   a_size-limb result and returns a carry */
 
 static bool
 limbs_incc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
@@ -423,8 +408,8 @@ limbs_incc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
 	return carry;
 }
 
-/* decrement n-limb number a if carry is true, else just copy it; gives n-limb
-   result and returns a carry */
+/* decrement a_size-limb number a if carry is true, else just copy it; gives
+   a_size-limb result and returns a carry */
 
 static bool
 limbs_decc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
@@ -462,8 +447,8 @@ limbs_sub(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n)
 	return carry;
 }
 
-/* multiply m-limb number a by single limb x, getting m-limb result res and
-   an extra high limb (returned separately). */
+/* multiply a_size-limb number a by single limb x, getting a_size-limb result
+   res and returning the high limb. */
 
 static limb_t
 limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
@@ -476,7 +461,7 @@ limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
 	return high;
 }
 
-/* multiply m-limb a by n-limb b, getting m+n-limb result res */
+/* multiply a by b, getting (a_size + b_size)-limb result res */
 
 static void
 limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
@@ -495,27 +480,26 @@ limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 	}
 }
 
-/* divide m-limb number a by single limb x, giving m-limb quotient res
-   and returning the (single limb) remainder */
+/* divide a_size-limb number a by single limb x, giving a_size-limb quotient
+   res and returning the (single limb) remainder */
 
 static limb_t
-limbs_div1(limb_t *res, const limb_t *a, Py_ssize_t m, limb_t x)
+limbs_div1(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+	   limb_t high, limb_t x)
 {
-	limb_t high;
 	Py_ssize_t i;
-	high = LIMB_ZERO;
-	for (i = m-1; i >= 0; i--)
+	for (i = a_size-1; i >= 0; i--)
 		res[i] = limb_div(&high, high, a[i], x);
 	return high;
 }
 
-/* divide m-limb a by n-limb b, giving an (m-n+1)-limb quotient and
-   n-limb remainder.  Assumes that the top limb of b is nonzero and
-   that m >= n.  w provides m+n+1 limbs of workspace. */
+/* divide a by b, giving an (a_size-b_size+1)-limb quotient and b_size-limb
+   remainder.  Assumes that the top limb of b is nonzero and that a_size >=
+   b_size.  w provides a_size+b_size+1 limbs of workspace. */
 
 static void
-limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t m, const limb_t *b,
-	  Py_ssize_t n, limb_t *w)
+limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
+	  const limb_t *b, Py_ssize_t b_size, limb_t *w)
 {
 	limb_t scale, top, a_top, b_top, q, dummy;
 	limb_t *aa, *bb;
@@ -524,52 +508,52 @@ limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t m, const limb_t
 
 	/* top limb of b should be nonzero; a should contain at least as many
 	   limbs as b */
-	assert(m >= n && !limb_eq(b[n-1], LIMB_ZERO));
+	assert(a_size >= b_size && !limb_eq(b[b_size-1], LIMB_ZERO));
 
 	/* compute scale factor for normalization: floor(LIMB_BASE /
 	   (b_top+1)) */
-	carry = limb_adc(&scale, b[n-1], LIMB_ONE, false);
+	carry = limb_adc(&scale, b[b_size-1], LIMB_ONE, false);
 	if (carry)
 		scale = LIMB_ONE;
 	else
 		scale = limb_div(&scale, LIMB_ONE, LIMB_ZERO, scale);
 
 	/* scale a and b */
-	top = limbs_mul1(w, b, n, scale);
+	top = limbs_mul1(w, b, b_size, scale);
 	bb = w;
 	assert(limb_eq(top, LIMB_ZERO));
 
-	top = limbs_mul1(w+n, a, m, scale);
-	aa = w+n;
+	top = limbs_mul1(w+b_size, a, a_size, scale);
+	aa = w+b_size;
 
-	/* catch most cases where quotient only needs m-n limbs */
-	if (limb_eq(top, LIMB_ZERO) && limb_lt(aa[m-1], bb[n-1]))
-		quot[m-n] = LIMB_ZERO;
+	/* catch most cases where quotient only needs a_size-b_size limbs */
+	if (limb_eq(top, LIMB_ZERO) && limb_lt(aa[a_size-1], bb[b_size-1]))
+		quot[a_size-b_size] = LIMB_ZERO;
 	else {
-		aa[m] = top;
-		m++;
+		aa[a_size] = top;
+		a_size++;
 	}
 
-	b_top = bb[n-1];
-	aa += m-n;
-	for (j = m-n-1; j >= 0; j--) {
+	b_top = bb[b_size-1];
+	aa += a_size-b_size;
+	for (j = a_size-b_size-1; j >= 0; j--) {
 		aa--;
-		a_top = aa[n];
+		a_top = aa[b_size];
 		assert(limb_le(a_top, b_top));
 		/* quotient q = aa / bb; may be overestimate */
 		if (limb_eq(a_top, b_top))
 			q = LIMB_MAX;
 		else
-			q = limb_div(&dummy, a_top, aa[n-1], b_top);
-		/* compute bottom n limbs of aa[j:] - q*bb */
-		top = limbs_mul1(rem, bb, n, q);
-		carry = limbs_sub(aa, aa, rem, n);
+			q = limb_div(&dummy, a_top, aa[b_size-1], b_top);
+		/* compute bottom b_size limbs of aa[j:] - q*bb */
+		top = limbs_mul1(rem, bb, b_size, q);
+		carry = limbs_sub(aa, aa, rem, b_size);
 		carry = limb_adc(&top, top, LIMB_ZERO, carry);
 		assert(!carry);
 		assert(limb_le(a_top, top));
 		/* correct if necessary */
 		while (limb_lt(a_top, top)) {
-			carry = limbs_add(aa, aa, bb, n);
+			carry = limbs_add(aa, aa, bb, b_size);
 			carry = limb_adc(&a_top, a_top, LIMB_ZERO, carry);
 			assert(!carry);
 			carry = limb_sbb(&q, q, LIMB_ONE, false);
@@ -577,73 +561,70 @@ limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t m, const limb_t
 		}
 		quot[j] = q;
 	}
-	/* OPT: optimization opportunity---this final step
-	   can be skipped when all we want is the quotient. */
-	top = limbs_div1(rem, aa, n, scale);
+	top = limbs_div1(rem, aa, b_size, LIMB_ZERO, scale);
 	assert(limb_eq(top, LIMB_ZERO));
 }
 
-/* shift m-limb number right n digits (not limbs!).  i.e., divide by
-   10**n.  n should satisfy 0 <= n <= LIMB_DIGITS*m, and the result
-   res has m - n/LIMB_DIGITS limbs. */
+/* shift a_size-limb number left n digits (shifting zeros in); i.e., multiply
+   by 10**n.  Fills the first a_size + ceiling(n/LIMB_DIGITS) limbs of res. */
 
 static void
-limbs_rshift(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
+limbs_lshift(limb_t *res, const limb_t *a, Py_ssize_t a_size, Py_ssize_t n)
 {
 	Py_ssize_t n_limbs, n_digits, i;
-	limb_t limb_top, limb_bot, rem;
-	bool carry;
-
+	limb_t high;
 	assert(n >= 0);
-	assert(n <= m*LIMB_DIGITS);
-
 	n_limbs = n / LIMB_DIGITS;
 	n_digits = n % LIMB_DIGITS;
-	if (n_digits == 0) {
-		for (i = 0; i < m - n_limbs; i++)
-			res[i] = a[i+n_limbs];
-		return;
-	}
-	rem = limb_sar(a[n_limbs], n_digits);
-	for (i = 0; i < m-n_limbs-1; i++) {
-		limb_top = limb_split(&limb_bot, a[n_limbs+i+1], n_digits);
-		carry = limb_adc(res+i, rem, limb_bot, false);
-		assert(!carry);
-		rem = limb_top;
-	}
-	res[i] = rem;
+	for (i = 0; i < n_limbs; i++)
+		res[i] = LIMB_ZERO;
+	high = limbs_mul1(res+n_limbs, a, a_size, powers_of_ten[n_digits]);
+	assert(limb_lt(high, powers_of_ten[n_digits]));
+	if (n_digits != 0)
+		res[n_limbs + a_size] = high;
 }
 
-/* get slice a[m:n] of (the decimal digits of) an integer a, from
-   digit m up to (but not including) digit n, giving a result res with
-   1+(n-m-1)/LIMB_DIGITS limbs.  Assumes that 0 <= m < n and that a
-   has at least 1+(n-1)/LIMB_DIGITS limbs. */
+/* shift a_size-limb number a right n digits (not limbs!).  i.e., divide by
+   10**n.  n should satisfy 0 <= n <= LIMB_DIGITS*a_size, and the result res
+   has a_size - n/LIMB_DIGITS limbs. */
+
+static void
+limbs_rshift(limb_t *res, const limb_t *a, Py_ssize_t a_size, Py_ssize_t n)
+{
+	Py_ssize_t n_limbs, n_digits;
+	assert(0 <= n && n <= a_size*LIMB_DIGITS);
+	n_limbs = n / LIMB_DIGITS;
+	n_digits = n % LIMB_DIGITS;
+	limbs_div1(res, a+n_limbs, a_size-n_limbs, LIMB_ZERO,
+		   powers_of_ten[n_digits]);
+}
+
+/* get slice a[m:n] of (the decimal digits of) an integer a, from digit m up
+   to (but not including) digit n, giving a result res with
+   ceiling((n-m)/LIMB_DIGITS) limbs.  Assumes that 0 <= m < n and that a has
+   at least 1+(n-1)/LIMB_DIGITS limbs. */
 
 static void
 limbs_slice(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
 {
-	Py_ssize_t mlimbs, mdigits, res_limbs, res_digits, i;
-	limb_t out, limb_bot, limb_top;
-	bool carry;
+	Py_ssize_t mlimbs, mdigits, reslimbs, resdigits, diff;
+	limb_t high;
 	mlimbs = m / LIMB_DIGITS;
 	mdigits = m % LIMB_DIGITS;
-	res_limbs = (n-1-m) / LIMB_DIGITS;
-	res_digits = (n-1-m) % LIMB_DIGITS + 1;
-	out = limb_sar(a[mlimbs++], mdigits);
-	for (i = 0; i < res_limbs; i++) {
-		limb_top = limb_split(&limb_bot, a[mlimbs++], mdigits);
-		carry = limb_adc(res+i, out, limb_bot, false);
-		assert(!carry);
-		out = limb_top;
+	reslimbs = (n-1-m) / LIMB_DIGITS;
+	resdigits = (n-1-m) % LIMB_DIGITS;
+	diff = (mdigits + resdigits - LIMB_DIGITS);
+	if (diff < 0) {
+		limbs_div1(res, a + mlimbs, reslimbs + 1,
+		   LIMB_ZERO, powers_of_ten[mdigits]);
+		res[reslimbs] = limb_mask(res[reslimbs], resdigits+1);
 	}
-	if (res_digits > LIMB_DIGITS - mdigits) {
-		limb_bot = limb_sal(a[mlimbs++], LIMB_DIGITS - mdigits);
-		carry = limb_adc(&out, out, limb_bot, false);
-		assert(!carry);
+	else {
+		high = limb_mask(a[mlimbs + reslimbs + 1], diff+1);
+		limbs_div1(res, a + mlimbs, reslimbs + 1,
+		   high, powers_of_ten[mdigits]);
 	}
-	res[i] = limb_low(out, res_digits);
 }
-
 
 /* get a particular digit from an array of limbs.  assumes that 0 <= n <
    a_size * LIMB_DIGITS */
@@ -652,38 +633,6 @@ static limb_t
 limbs_getdigit(limb_t *a, Py_ssize_t n)
 {
 	return limb_getdigit(a[n/LIMB_DIGITS], n%LIMB_DIGITS);
-}
-
-/* shift m-limb number left n digits (shifting zeros in); i.e.,
-   multiply by 10**n.  Assumes res has size m +
-   1+(n-1)/LIMB_DIGITS (or just size m if n == 0). */
-
-static void
-limbs_lshift(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
-{
-	Py_ssize_t n_limbs, n_digits, i;
-	limb_t limb_top, tmp;
-	bool carry;
-
-	assert(n >= 0);
-	n_limbs = n / LIMB_DIGITS;
-	n_digits = n % LIMB_DIGITS;
-	for (i = 0; i < n_limbs; i++)
-		res[i] = LIMB_ZERO;
-	if (n_digits == 0) {
-		for (; i < n_limbs+m; i++)
-			res[i] = a[i-n_limbs];
-		return;
-	}
-	res[i++] = limb_splitl(&limb_top, a[0], n_digits);
-	for (; i < n_limbs+m; i++) {
-		carry = limb_adc(res+i, limb_top,
-				 limb_splitl(&tmp, a[i-n_limbs], n_digits),
-				 false);
-		assert(!carry);
-		limb_top = tmp;
-	}
-	res[i] = limb_top;
 }
 
 /* Conversion to and from strings */
@@ -707,7 +656,7 @@ limbs_from_string(limb_t *a, const char *s, Py_ssize_t s_len)
 		c = s[i];
 		if (c < '0' || c > '9')
 			return true;
-		acc = limb_shift_digit_in(acc, (int)(c - '0'));
+		limb_lshift(&acc, acc, 1, digit_to_limb(c));
 		digits_in_limb--;
 		if (digits_in_limb == 0) {
 			digits_in_limb = LIMB_DIGITS;
@@ -742,11 +691,9 @@ limbs_from_longdigits(limb_t *a, const digit *b, Py_ssize_t b_size)
 	for (j = b_size-1; j >= 0; j--) {
 		high = b[j];
 		for (i=0; i < a_size; i++)
-			high = limb_digit_swap(a+i, a[i], high);
-		while (high != 0) {
-			high = limb_digit_swap(a+a_size, LIMB_ZERO, high);
-			a_size++;
-		}
+			a[i] = limb_digit_swap(&high, a[i], high);
+		while (high != 0)
+			a[a_size++] = limb_digit_swap(&high, LIMB_ZERO, high);
 	}
 	return a_size;
 }
@@ -762,11 +709,9 @@ limbs_to_longdigits(digit *b, const limb_t *a, Py_ssize_t a_size)
 	for (i = a_size-1; i >= 0; i--) {
 		high = a[i];
 		for (j = 0; j < b_size; j++)
-			high = digit_limb_swap(b+j, b[j], high);
-		while (!limb_eq(high, LIMB_ZERO)) {
-			high = digit_limb_swap(b+b_size, 0, high);
-			b_size++;
-		}
+			b[j] = digit_limb_swap(&high, b[j], high);
+		while (!limb_eq(high, LIMB_ZERO))
+			b[b_size++] = digit_limb_swap(&high, 0, high);
 	}
 	return b_size;
 }
@@ -1095,7 +1040,7 @@ _deccoeff_division(deccoeff **r, deccoeff *a, deccoeff *b) {
 	if (b_size == 1)
 		/* fast path for division by a single limb */
 		rem->ob_limbs[0] = limbs_div1(quot->ob_limbs, a->ob_limbs,
-					      a_size, b->ob_limbs[0]);
+					a_size, LIMB_ZERO, b->ob_limbs[0]);
 	else {
 		/* long division */
 		w = _deccoeff_new(a_size + 1 + b_size);
@@ -1193,7 +1138,8 @@ _deccoeff_power(deccoeff *a, deccoeff *bb, deccoeff *c)
 		goto fail2;
 	while (true) {
 		/* invariant quantity: apow**b*acc == a**bb. */
-		lowbit = limbs_div1(b_limbs, b_limbs, b_size, LIMB_TWO);
+		lowbit = limbs_div1(b_limbs, b_limbs, b_size, LIMB_ZERO,
+				    LIMB_TWO);
 		if (limb_eq(b_limbs[b_size-1], LIMB_ZERO))
 			b_size--;
 		if (limb_eq(lowbit, LIMB_ONE)) {
@@ -1674,16 +1620,16 @@ deccoeff_str(deccoeff *v)
 	while (limb_pointer < last_limb) {
 		limb_value = *limb_pointer++;
 		for (i=0; i < LIMB_DIGITS; i++)
-			*--p = '0' + limb_shift_digit_out(
-				&limb_value, limb_value);
+			*--p = limb_to_digit(
+				limb_rshift(&limb_value,
+					    limb_value, 1, LIMB_ZERO));
 	}
 	/* most significant limb_t */
 	limb_value = *limb_pointer;
 	assert(!limb_eq(limb_value, LIMB_ZERO));
-	while (!limb_eq(limb_value, LIMB_ZERO)) {
-		*--p = '0' + limb_shift_digit_out(
-			&limb_value, limb_value);
-	}
+	while (!limb_eq(limb_value, LIMB_ZERO))
+		*--p = limb_to_digit(
+			limb_rshift(&limb_value, limb_value, 1, LIMB_ZERO));
 	return str;
 }
 
