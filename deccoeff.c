@@ -10,22 +10,14 @@
 /*
  *  To do
  *  -----
- *  write Deccoeff-specific tests
+ *  expand Deccoeff-specific tests
  *  improve and correct documentation
- *  add configuration to detect presence of stdint.h and stdbool.h
- *    and make appropriate substitutions if necessary
  *  fast recursive algorithms for multiplication, division, base conversion
- *  fix usage of stdint and stdbool
- *  implement two and three-argument pow
+ *  (fast recursive) square root
  */
 
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <assert.h>
 #include "Python.h"
 #include "longintrepr.h"
-#include "string.h"
 #include "config.h"
 
 /* substitute for bool if necessary */
@@ -34,7 +26,7 @@
 #  include <stdbool.h>
 #else
 #  ifndef HAVE__BOOL
-#    define _Bool int;
+#    define _Bool signed char;
 #  endif
 #  define bool _Bool;
 #  define false 0;
@@ -111,6 +103,7 @@ static limb_t powers_of_ten[LIMB_DIGITS+1] = {
 
 #define LIMB_ZERO ((limb_t)0)
 #define LIMB_ONE ((limb_t)1)
+#define LIMB_TWO ((limb_t)2)
 #define LIMB_BASE (LIMB_MAX+1)
 
 
@@ -836,12 +829,38 @@ deccoeff_checksize(deccoeff *v)
 	return NULL;
 }
 
-/* return a new reference to the zero deccoeff */
+static deccoeff *
+_deccoeff_copy(deccoeff *a)
+{
+	Py_ssize_t a_size, i;
+	deccoeff *z;
+
+	a_size = Py_SIZE(a);
+	z = _deccoeff_new(a_size);
+	if (z != NULL)
+		for (i=0; i < a_size; i++)
+			z->ob_limbs[i] = a->ob_limbs[i];
+	return z;
+}
+
+/* return zero */
 
 static deccoeff *
 deccoeff_zero(void)
 {
 	return _deccoeff_new(0);
+}
+
+/* return one */
+
+static deccoeff *
+deccoeff_one(void)
+{
+	deccoeff *z;
+	z = _deccoeff_new(1);
+	if (z != NULL)
+		z->ob_limbs[0] = LIMB_ONE;
+	return z;
 }
 
 static deccoeff *
@@ -882,56 +901,68 @@ deccoeff_from_string_and_size(const char *s, Py_ssize_t s_len) {
    outside the range [0, 10**MAX_DIGITS) then OverflowError is raised.
    Results are always normalized. */
 
+/* determine whether another Python object is compatible with deccoeff, in the
+   sense that it can be used in mixed-type arithmetic with deccoeff */
+
+static bool
+compatible_with_deccoeff(PyObject *v)
+{
+	return (v->ob_type == &deccoeff_DeccoeffType || PyIndex_Check(v));
+}
 
 /* convert an arbitrary PyObject to a deccoeff.  If conversion is implemented
    for this type, return false and put the result of the attempted conversion
-   (which may be NULL) in *z.   Otherwise, return true. */
+   (which may be NULL on failure) in *z.   Otherwise, return true. */
 
 static deccoeff *deccoeff_from_PyLong(PyLongObject *a);
 
-static bool
-convert_to_deccoeff(deccoeff **z, PyObject *v)
+static deccoeff *
+convert_to_deccoeff(PyObject *v)
 {
 	PyLongObject *w;
+	deccoeff *z;
+
 	if (v->ob_type == &deccoeff_DeccoeffType) {
 		Py_INCREF(v);
-		*z = (deccoeff *)v;
-		return false;
+		return (deccoeff *)v;
 	}
 	else if (PyIndex_Check(v)) {
 		w = (PyLongObject *)PyNumber_Index(v);
-		if (w == NULL) {
-			*z = NULL;
-			return false;
-		}
-		*z = deccoeff_from_PyLong(w);
+		if (w == NULL)
+			return NULL;
+		z = deccoeff_from_PyLong(w);
 		Py_DECREF(w);
-		return false;
+		return z;
 	}
-	else
-		return true;
+	else {
+		PyErr_SetString(PyExc_TypeError,
+				"invalid type in deccoeff coercion");
+		return NULL;
+	}
 }
 
-
-#define DECCOEFF_WRAP_BINOP(PO_func, DC_func)   \
-static PyObject *                               \
-PO_func(PyObject *v, PyObject *w)               \
-{                                               \
-	deccoeff *a, *b;                        \
-	PyObject *z;                            \
-	if (convert_to_deccoeff(&a, v)) {       \
-		Py_INCREF(Py_NotImplemented);   \
-		return Py_NotImplemented;       \
-	}                                       \
-	if (convert_to_deccoeff(&b, w)) {       \
-		Py_DECREF(a);                   \
-		Py_INCREF(Py_NotImplemented);   \
-		return Py_NotImplemented;       \
-	}                                       \
-	z = (PyObject *)(DC_func(a, b));        \
-	Py_DECREF(a);                           \
-	Py_DECREF(b);                           \
-	return z;                               \
+#define DECCOEFF_WRAP_BINOP(PO_func, DC_func)			\
+static PyObject *						\
+PO_func(PyObject *v, PyObject *w)				\
+{								\
+	deccoeff *a, *b;					\
+	PyObject *z = NULL;					\
+	if (!compatible_with_deccoeff(v)) {			\
+		Py_INCREF(Py_NotImplemented);			\
+		z = Py_NotImplemented;				\
+	}							\
+	else if ((a = convert_to_deccoeff(v)) != NULL) {	\
+		if (!compatible_with_deccoeff(w)) {		\
+			Py_INCREF(Py_NotImplemented);		\
+			z = Py_NotImplemented;			\
+		}						\
+		else if ((b = convert_to_deccoeff(w)) != NULL) {	\
+			z = (PyObject *)(DC_func(a, b));	\
+			Py_DECREF(b);				\
+		}						\
+		Py_DECREF(a);					\
+	}							\
+	return z;						\
 }
 
 /* addition */
@@ -1068,6 +1099,26 @@ _deccoeff_remainder(deccoeff *a, deccoeff *b) {
 	return rem;
 }
 
+/* a*b % c;  assumes that a < c and b < c. */
+
+static deccoeff *
+_deccoeff_multiply_and_reduce(deccoeff *a, deccoeff *b, deccoeff *c)
+{
+	Py_ssize_t a_size, b_size;
+	deccoeff *z, *w;
+
+	a_size = Py_SIZE(a);
+	b_size = Py_SIZE(b);
+	z = _deccoeff_new(a_size + b_size);
+	if (z == NULL)
+		return NULL;
+	limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
+	/* w = z % c */
+	w = _deccoeff_remainder(z, c);
+	Py_DECREF(z);
+	return w;
+}
+
 /* divmod: raises ZeroDivisionError if b is zero */
 
 static PyObject *
@@ -1079,6 +1130,131 @@ _deccoeff_divmod(deccoeff *a, deccoeff *b) {
 		return NULL;
 	return Py_BuildValue("OO", (PyObject *)quot, (PyObject *)rem);
 }
+
+
+/* this version of power is naive and slow */
+
+static deccoeff *
+_deccoeff_power(deccoeff *a, deccoeff *bb, deccoeff *c)
+{
+	deccoeff *acc=NULL, *temp, *apow, *b;
+	limb_t lowbit, *b_limbs;
+	Py_ssize_t b_size;
+	/* make a copy b of bb, which we'll modify in-place */
+	b = _deccoeff_copy(bb);
+	if (b == NULL)
+		goto fail0;
+	b_size = Py_SIZE(b);
+	b_limbs = b->ob_limbs;
+	/* apow keeps a power of a; starts as a (or a % c) */
+	if (c == NULL) {
+		apow = a;
+		Py_INCREF(apow);
+	}
+	else
+		apow = _deccoeff_remainder(a, c);
+	if (apow == NULL)
+		goto fail1;
+	/* result accumulates in acc, which starts out as 1 (or 0 if c == 1) */
+	acc = deccoeff_one();
+	if (acc != NULL && c != NULL) {
+		/* acc %= c */
+		temp = _deccoeff_remainder(acc, c);
+		Py_DECREF(acc);
+		acc = temp;
+	}
+	if (acc == NULL || b_size == 0)
+		goto fail2;
+	while (true) {
+		/* invariant quantity: apow**b*acc == a**bb. */
+		lowbit = limbs_div1(b_limbs, b_limbs, b_size, LIMB_TWO);
+		if (limb_eq(b_limbs[b_size-1], LIMB_ZERO))
+			b_size--;
+		if (limb_eq(lowbit, LIMB_ONE)) {
+			/* acc *= apow */
+			if (c == NULL)
+				temp = _deccoeff_multiply(apow, acc);
+			else
+				temp = _deccoeff_multiply_and_reduce(apow,
+								     acc, c);
+			Py_DECREF(acc);
+			acc = temp;
+		}
+		if (acc == NULL || b_size == 0)
+			break;
+
+		/* apow *= apow */
+		if (c == NULL)
+			temp = _deccoeff_multiply(apow, apow);
+		else
+			temp = _deccoeff_multiply_and_reduce(apow, apow, c);
+		Py_DECREF(apow);
+		apow = temp;
+		if (apow == NULL) {
+			Py_DECREF(acc);
+			acc = NULL;
+			goto fail1;
+		}
+	}
+  fail2:
+	Py_DECREF(apow);
+  fail1:
+	Py_DECREF(b);
+  fail0:
+	return acc;
+}
+
+/* wrap _deccoeff_power */
+
+static PyObject *
+deccoeff_power(PyObject *v, PyObject *w, PyObject *x)
+{
+	deccoeff *a, *b, *c;
+	PyObject *z;
+	if (!compatible_with_deccoeff(v)) {
+		Py_INCREF(Py_NotImplemented);
+		return Py_NotImplemented;
+	}
+	a = convert_to_deccoeff(v);
+	if (a == NULL)
+		return NULL;
+
+	if (!compatible_with_deccoeff(w)) {
+		Py_DECREF(a);
+		Py_INCREF(Py_NotImplemented);
+		return Py_NotImplemented;
+	}
+	b = convert_to_deccoeff(w);
+	if (b == NULL) {
+		Py_DECREF(a);
+		return NULL;
+	}
+
+	if (x == Py_None)
+		c = NULL;
+	else if (compatible_with_deccoeff(x)) {
+		c = convert_to_deccoeff(x);
+		if (c == NULL) {
+			Py_DECREF(b);
+			Py_DECREF(a);
+			return NULL;
+		}
+	}
+	else {
+		Py_DECREF(b);
+		Py_DECREF(a);
+		Py_INCREF(Py_NotImplemented);
+		return Py_NotImplemented;
+	}
+
+	z = (PyObject *)_deccoeff_power(a, b, c);
+
+	Py_XDECREF(c);
+	Py_DECREF(b);
+	Py_DECREF(a);
+	return z;
+}
+
 
 /* negation: succeeds only for a == 0; for anything else, OverflowError is
    raised */
@@ -1558,7 +1734,7 @@ static PyNumberMethods deccoeff_as_number = {
 	deccoeff_multiply,                      /*nb_multiply*/
 	deccoeff_remainder,                     /*nb_remainder*/
 	deccoeff_divmod,                        /*nb_divmod*/
-	0, /*nb_power*/
+	deccoeff_power,                         /*nb_power*/
 	(unaryfunc) deccoeff_negative,          /*nb_negative*/
 	(unaryfunc) deccoeff_positive,          /*nb_positive*/
 	(unaryfunc) deccoeff_positive,          /*nb_absolute*/
