@@ -15,6 +15,13 @@
  *  improve and correct documentation
  *  fast recursive algorithms for multiplication, division, base conversion
  *  (fast recursive) square root
+ *
+ *  minor optimization opportunities:
+ *  - limbs_lshift and limbs_rshift could be faster when the shift count
+ *    is a multiple of LIMB_DIGITS.
+ *  - when LIMB_DIGITS == 9, base conversion could be a factor of 2 faster
+ *    (asymptotically) by operating on two PyLong_Digits at a time instead of
+ *    one.
  */
 
 #include "Python.h"
