@@ -8,7 +8,7 @@ clean:
 	-rm -fr build/
 	-rm deccoeff.o deccoeff.so
 	-rm *.pyc
-	-rm config.status config.log config.h
+	-rm config.status config.log deccoeff_config.h
 	-rm -fr autom4te.cache/
 
 distclean: clean
