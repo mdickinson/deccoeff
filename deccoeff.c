@@ -222,12 +222,12 @@ limb_div(limb_t *rem, limb_t high, limb_t low, limb_t c) {
 	return (limb_t)(hilo/c);
 }
 
-/* test limb equality */
+/* determine whether the given limb is nonzero */
 
 static bool
-limb_eq(limb_t a, limb_t b)
+limb_bool(limb_t a)
 {
-	return a == b;
+	return a != 0;
 }
 
 /* The following two functions are used in base conversion.  Any value n in
@@ -271,10 +271,10 @@ limb_hash(limb_t x) {
    if the limb is 0 */
 
 static Py_ssize_t
-limb_dsr(limb_t x) {
+limb_msd(limb_t x) {
 	Py_ssize_t i;
 	if (x == 0)
-		limb_error("limb_dsr: zero argument");
+		limb_error("limb_msd: zero argument");
 	for (i=0; i < LIMB_DIGITS && powers_of_ten[i] <= x; i++);
 	return i;
 }
@@ -292,6 +292,18 @@ limb_dsr(limb_t x) {
 
 /* comparisons */
 
+static int
+limb_cmp(limb_t a, limb_t b)
+{
+	bool carry;
+	limb_t diff;
+	carry = limb_sbb(&diff, a, b, false);
+	if (limb_bool(diff))
+		return carry ? -1 : 1;
+	else
+		return 0;
+}
+
 /* a < b iff a - b overflows */
 
 static bool
@@ -308,12 +320,6 @@ limb_le(limb_t a, limb_t b)
 {
 	limb_t dummy;
 	return limb_sbb(&dummy, a, b, true);
-}
-
-static bool
-limb_bool(limb_t a)
-{
-	return limb_lt(LIMB_ZERO, a);
 }
 
 /* extract bottom n digits of a limb */
@@ -344,7 +350,7 @@ limb_to_digit(limb_t b)
 	return '0' + (char)digit_limb_swap(&dummy, 0, b);
 }
 
-/* res = a << n + b, b < 10**n.  Returns part shifted out. */
+/* *res = a << n + b, b < 10**n.  Returns part shifted out. */
 
 static limb_t
 limb_lshift(limb_t *res, limb_t a, Py_ssize_t n, limb_t b) {
@@ -358,7 +364,7 @@ limb_lshift(limb_t *res, limb_t a, Py_ssize_t n, limb_t b) {
 		return limb_fmaa(res, a, powers_of_ten[n], b, LIMB_ZERO);
 }
 
-/* res = (a + b*LIMB_BASE) >> n, b < 10**n.  Returns part shifted out. */
+/* *res = (a + b*LIMB_BASE) >> n, b < 10**n.  Returns part shifted out. */
 
 static limb_t
 limb_rshift(limb_t *res, limb_t a, Py_ssize_t n, limb_t b) {
@@ -785,7 +791,7 @@ deccoeff_checksize(deccoeff *v)
 	if (v_size < (MAX_DIGITS-1)/LIMB_DIGITS+1)
 		small = true;
 	else if (v_size == (MAX_DIGITS-1)/LIMB_DIGITS+1) {
-		topdigits = limb_dsr(v->ob_limbs[v_size-1]);
+		topdigits = limb_msd(v->ob_limbs[v_size-1]);
 		small = topdigits <= (MAX_DIGITS-1)%LIMB_DIGITS+1;
 	}
 	else
@@ -1441,14 +1447,17 @@ _deccoeff_floor_divide(deccoeff *a, deccoeff *b) {
 static int
 _deccoeff_compare(deccoeff *a, deccoeff *b)
 {
+	int c;
 	Py_ssize_t a_size, b_size, i;
 	a_size = Py_SIZE(a);
 	b_size = Py_SIZE(b);
 	if (a_size != b_size)
 		return a_size < b_size ? -1 : 1;
-	for (i = a_size-1; i >= 0; i--)
-		if (!limb_eq(a->ob_limbs[i], b->ob_limbs[i]))
-			return limb_lt(a->ob_limbs[i], b->ob_limbs[i]) ? -1 : 1;
+	for (i = a_size-1; i >= 0; i--) {
+		c = limb_cmp(a->ob_limbs[i], b->ob_limbs[i]);
+		if (c != 0)
+			return c;
+	}
 	return 0;
 }
 
@@ -1580,7 +1589,7 @@ deccoeff_length(deccoeff *v)
 	v_size = Py_SIZE(v);
 	if (v_size == 0)
 		return 0;
-	return limb_dsr(v->ob_limbs[v_size-1]) + (v_size-1) * LIMB_DIGITS;
+	return limb_msd(v->ob_limbs[v_size-1]) + (v_size-1) * LIMB_DIGITS;
 }
 
 static PyObject *
