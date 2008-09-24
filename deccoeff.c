@@ -173,7 +173,7 @@ limb_error(const char *msg)
 static bool
 limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 {
-	limb_t sum, test;
+	limb_t sum;
 	sum = a + b + (c ? LIMB_ONE : LIMB_ZERO);
 	if (sum >= LIMB_BASE) {
 		*r = sum - LIMB_BASE;
