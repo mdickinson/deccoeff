@@ -393,7 +393,7 @@ static limb_t
 limb_getdigit(limb_t x, Py_ssize_t n)
 {
 	limb_t q, dummy;
-	if (!(0 <= n && n < 9))
+	if (!(0 <= n && n < LIMB_DIGITS))
 		limb_error("invalid digit in limb_getdigit");
 	q = limb_div(&dummy, LIMB_ZERO, x, powers_of_ten[n]);
 	return limb_mask(q, 1);
