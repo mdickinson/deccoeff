@@ -1,0 +1,4 @@
+Changes since version 0.2
+-------------------------
+
+Make limb types unsigned integers instead of signed integers.
