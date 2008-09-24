@@ -22,6 +22,9 @@ test: deccoeff.so
 run: deccoeff.so
 	$(PYTHON) -i run.py
 
+profile: deccoeff.so
+	$(PYTHON) -i profile.py
+
 install: all
 	$(PYTHON) setup.py install
 
