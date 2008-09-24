@@ -52,8 +52,14 @@
 /*
    A Deccoeff instance is stored internally in base LIMB_BASE =
    10**LIMB_DIGITS, as an array of limbs (least significant first).
-   LIMB_DIGITS is 9 if 32-bit and 64-bit integer types are available (as they
-   should be on almost all modern machines); otherwise it's 4.
+   LIMB_DIGITS is 18 if 64-bit and 128-bit integer types are available, and 9
+   if 32-bit and 64-bit integer types are available (as they should be on
+   almost all modern machines); otherwise it's 4.
+
+   (It's possible to squeeze 19 decimal digits into a 128-bit unsigned integer
+   type, but that leaves little room for maneuver.  Using 18 decimal digits
+   instead makes the basic multiplication algorithm significantly faster, by
+   saving on the number of divisions necessary.)
 
    Here we define the various types and constants needed.
 
@@ -319,6 +325,88 @@ limb_msd(limb_t x) {
 		limb_error("limb_msd: zero argument");
 	for (i=0; i < LIMB_DIGITS && powers_of_ten[i] <= x; i++);
 	return i;
+}
+
+/* here's an attempt at faster multiplication; it's in this section because it
+   depends on knowing the representation of a limb.  It saves on the number of
+   divisions required by accumulating the sum of several partial products at a
+   time.  The largest number of partials we can accumulate is 42 if
+   LIMB_DIGITS == 4, 18 if LIMB_DIGITS == 9, and 340 if LIMB_DIGITS = 18. */
+
+#if LIMB_DIGITS == 4
+#define MAX_PARTIALS 42
+#elif LIMB_DIGITS == 9
+#define MAX_PARTIALS 18
+#elif LIMB_DIGITS == 18
+#define MAX_PARTIALS 340
+#else
+#error "unrecognised value for LIMB_DIGITS"
+#endif
+
+/* Multiply b by a, assuming that b_size <= a_size and b_size <=
+   MAX_PARTIALS.  Put result in *res.  The bottom a_size limbs
+   of the result are added to the current contents of res.  The
+   top b_size limbs replace what's already in res. */
+
+static void
+limbs_fmul_block(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+	   const limb_t *b, Py_ssize_t b_size)
+{
+	Py_ssize_t i, j, k;
+	double_limb_t acc;
+
+	assert(b_size <= a_size);
+	assert(b_size <= MAX_PARTIALS);
+
+	/* XXX explain how this algorithm works */
+
+	acc = 0;
+	k = 0;
+	for (k=0; k < b_size; k++) {
+		for (i=k, j=0; i >= 0 ; i--, j++)
+			acc += (double_limb_t)(a[i])*b[j];
+		res[k] += acc % LIMB_BASE;
+		acc /= LIMB_BASE;
+	}
+	for (; k < a_size; k++) {
+		for (i=k, j=0; j < b_size; i--, j++)
+			acc += (double_limb_t)(a[i])*b[j];
+		res[k] += acc % LIMB_BASE;
+		acc /= LIMB_BASE;
+	}
+	for (; k < a_size + b_size; k++) {
+		for (i=a_size-1, j=k-i; j < b_size; i--, j++)
+			acc += (double_limb_t)(a[i])*b[j];
+		res[k] = acc % LIMB_BASE;
+		acc /= LIMB_BASE;
+	}
+	assert(acc == 0);
+}
+
+static void
+limbs_fmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+	   const limb_t *b, Py_ssize_t b_size)
+{
+	Py_ssize_t k;
+
+	/* reduce to case where a_size >= b_size */
+	if (a_size < b_size) {
+		const limb_t *temp;
+		Py_ssize_t temp_size;
+		temp = a; a = b; b = temp;
+		temp_size = a_size; a_size = b_size; b_size = temp_size;
+	}
+
+	for (k = 0; k < a_size; k++)
+		res[k] = LIMB_ZERO;
+
+	while(b_size >= MAX_PARTIALS) {
+		limbs_fmul_block(res, a, a_size, b, MAX_PARTIALS);
+		b_size -= MAX_PARTIALS;
+		b += MAX_PARTIALS;
+		res += MAX_PARTIALS;
+	}
+	limbs_fmul_block(res, a, a_size, b, b_size);
 }
 
 #undef LIMB_BASE
@@ -1047,7 +1135,7 @@ _deccoeff_multiply(deccoeff *a, deccoeff *b)
 	z = _deccoeff_new(a_size + b_size);
 	if (z == NULL)
 		return NULL;
-	limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
+	limbs_fmul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
 	return deccoeff_checksize(deccoeff_normalize(z));
 }
 
