@@ -78,10 +78,46 @@
 #include <inttypes.h>
 #endif
 
-#if (defined(UINT32_MAX) || defined(uint32_t)) && \
+#if (defined(UINT64_MAX) || defined(uint64_t)) && \
+	(defined(HAVE___UINT128_T))
+
+/* if a 128-bit unsigned integer type is available, use a 64-bit limb ,
+   with 18 digits to a limb ... */
+
+typedef uint64_t limb_t;
+typedef __uint128_t double_limb_t;
+typedef __uint128_t digit_limb_t;
+#define LIMB_DIGITS 18
+#define LIMB_MAX ((limb_t)999999999999999999)
+#define BASEC_P 5553
+#define BASEC_Q 22136
+#define BASECI_P 4369
+#define BASECI_Q 1096
+static limb_t powers_of_ten[LIMB_DIGITS] = {
+	1,
+	10,
+	100,
+	1000,
+	10000,
+	100000,
+	1000000,
+	10000000,
+	100000000,
+	1000000000,
+	10000000000,
+	100000000000,
+	1000000000000,
+	10000000000000,
+	100000000000000,
+	1000000000000000,
+	10000000000000000,
+	100000000000000000
+};
+
+#elif (defined(UINT32_MAX) || defined(uint32_t)) && \
 	(defined(UINT64_MAX) || defined(uint64_t))
 
-/* use uint32_t for limb_t and uint64_t for double_limb_t if available,
+/* else use uint32_t for limb_t and uint64_t for double_limb_t if available,
    with 9 digits to a limb... */
 
 typedef uint32_t limb_t;

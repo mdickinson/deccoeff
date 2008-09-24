@@ -17,5 +17,10 @@ dnl they don't exist).
 AC_TYPE_UINT32_T
 AC_TYPE_UINT64_T
 
+dnl check for 128-bit unsigned integer type; gcc makes it available as
+dnl __uint128_t on x86-64.
+
+AC_CHECK_TYPES([__uint128_t])
+
 AC_OUTPUT
 
