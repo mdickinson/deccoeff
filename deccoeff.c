@@ -1,5 +1,3 @@
-/* Make limb_error compile only for debug build */
-
 /*
  * deccoeff.Deccoeff is a class implementing arbitrary-precision
  * unsigned integer arithmetic in a decimal base.  As the name
@@ -19,6 +17,7 @@
  *  (fast recursive) square root
  *
  *  minor optimization opportunities:
+ *  - make limb_error checks only for debug build
  *  - limbs_lshift and limbs_rshift could be faster when the shift count
  *    is a multiple of LIMB_DIGITS.
  *  - when LIMB_DIGITS == 9, base conversion could be a factor of 2 faster
