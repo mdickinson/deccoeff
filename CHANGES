@@ -1,6 +1,8 @@
 Changes since version 0.2
 -------------------------
 
+Fix rich comparisons to do type conversion.
+
 Test-suite for deccoeff module added
 
 Make limb types unsigned integers instead of signed integers.

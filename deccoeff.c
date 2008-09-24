@@ -1,5 +1,4 @@
 /* Make limb_error compile only for debug build */
-/* Type conversion for comparisons */
 
 /*
  * deccoeff.Deccoeff is a class implementing arbitrary-precision
@@ -1473,12 +1472,26 @@ _deccoeff_compare(deccoeff *a, deccoeff *b)
    _deccoeff_compare. */
 
 static PyObject *
-deccoeff_richcompare(PyObject *self, PyObject *other, int op)
+deccoeff_richcompare(PyObject *v, PyObject *w, int op)
 {
-	PyObject *result;
-	result = Py_CmpToRich(op, _deccoeff_compare((deccoeff*)self,
-						   (deccoeff*)other));
-	return result;
+	deccoeff *a, *b;
+	PyObject *z = NULL;
+	if (!compatible_with_deccoeff(v)) {
+		Py_INCREF(Py_NotImplemented);
+		z = Py_NotImplemented;
+	}
+	else if ((a = convert_to_deccoeff(v)) != NULL) {
+		if (!compatible_with_deccoeff(w)) {
+			Py_INCREF(Py_NotImplemented);
+			z = Py_NotImplemented;
+		}
+		else if ((b = convert_to_deccoeff(w)) != NULL) {
+			z = Py_CmpToRich(op, _deccoeff_compare(a, b));
+			Py_DECREF(b);
+		}
+		Py_DECREF(a);
+	}
+	return z;
 }
 
 /* Compute ceiling(n*p/q) without intermediate overflow.  If the result
