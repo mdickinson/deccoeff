@@ -22,8 +22,15 @@ executable.
 
 (3) make install
 
-Then from Python you can type:
+To use a 64-bit limb on 64-bit platforms, you'll probably need to set
+CFLAGS or CPPFLAGS when running configure.  For example, on my Core 2
+Duo MacBook, with a 64-bit version of Python 3.0 already installed, I
+type:
 
+CFLAGS='-arch x86_64' ./configure
+
+This lets the configure script find the __uint128_t type provided by
+gcc.
 
 Usage
 -----
