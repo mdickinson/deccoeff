@@ -1218,7 +1218,7 @@ _deccoeff_multiply_and_reduce(deccoeff *a, deccoeff *b, deccoeff *c)
 	z = _deccoeff_new(a_size + b_size);
 	if (z == NULL)
 		return NULL;
-	limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
+	limbs_fmul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
 	/* w = z % c */
 	w = _deccoeff_remainder(z, c);
 	Py_DECREF(z);
