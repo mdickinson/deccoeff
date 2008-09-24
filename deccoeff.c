@@ -1,3 +1,6 @@
+/* Make limb_error compile only for debug build */
+/* Type conversion for comparisons */
+
 /*
  * deccoeff.Deccoeff is a class implementing arbitrary-precision
  * unsigned integer arithmetic in a decimal base.  As the name
