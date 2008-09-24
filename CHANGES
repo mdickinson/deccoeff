@@ -4,3 +4,5 @@ Changes since version 0.2
 Test-suite for deccoeff module added
 
 Make limb types unsigned integers instead of signed integers.
+
+Add telco benchmarking code.
