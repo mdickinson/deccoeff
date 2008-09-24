@@ -16,6 +16,7 @@ distclean: clean
 	-rm configure
 
 test: deccoeff.so
+	$(PYTHON) test_deccoeff.py
 	$(PYTHON) test_decimal.py
 
 run: deccoeff.so
