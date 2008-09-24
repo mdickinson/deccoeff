@@ -1,6 +1,7 @@
 from deccoeff import Deccoeff as D, LIMB_DIGITS, MAX_DIGITS
 from test.support import run_unittest
 from operator import add, mul, sub, floordiv, mod, pow
+from operator import eq, ge, gt, le, lt, ne
 import operator
 import unittest
 from random import randrange
@@ -11,6 +12,12 @@ opname = {
     mul: '*',
     floordiv: '/',
     mod: '%',
+    le: '<=',
+    lt: '<',
+    eq: '==',
+    ne: '!=',
+    ge: '>=',
+    gt: '>',
 }
 
 class DecccoeffTest(unittest.TestCase):
@@ -25,9 +32,13 @@ class DecccoeffTest(unittest.TestCase):
         else:
             int_result = D(op(a, b))
             deccoeff_result = op(D(a), D(b))
+            mixed_result1 = op(a, D(b))
+            mixed_result2 = op(D(a), b)
             if int_result != deccoeff_result:
                 self.fail('integer and deccoeff give different results for: '
                           '%s %s %s' % (a, opname[op], b))
+            self.assertEquals(mixed_result1, int_result)
+            self.assertEquals(mixed_result2, int_result)
 
     def testRandomOps(self):
         sizes = [10**i for i in
