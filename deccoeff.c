@@ -22,6 +22,12 @@
  *  - when LIMB_DIGITS == 9, base conversion could be a factor of 2 faster
  *    (asymptotically) by operating on two PyLong_Digits at a time instead of
  *    one.
+ *  - in multiplication, should separate out the first step, to avoid
+ *    needlessly adding zeros.
+ *  - in multiplication, can amalgamate addition of products and save
+ *    on divisions.  If LIMB_DIGITS = 9, then can add up to 18 partial
+ *    products.  If LIMB_DIGITS = 4, can add up to 42.  This would
+ *    likely produce significant speedup.
  */
 
 #include "Python.h"
