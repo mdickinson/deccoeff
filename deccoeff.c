@@ -77,15 +77,15 @@
 #include <inttypes.h>
 #endif
 
-#if (defined(INT32_MAX) || defined(int32_t)) && \
-	(defined(INT64_MAX) || defined(int64_t))
+#if (defined(UINT32_MAX) || defined(uint32_t)) && \
+	(defined(UINT64_MAX) || defined(uint64_t))
 
-/* use int32_t for limb_t and int64_t for double_limb_t if available,
+/* use uint32_t for limb_t and uint64_t for double_limb_t if available,
    with 9 digits to a limb... */
 
-typedef int32_t limb_t;
-typedef int64_t double_limb_t;
-typedef int64_t digit_limb_t;
+typedef uint32_t limb_t;
+typedef uint64_t double_limb_t;
+typedef uint64_t digit_limb_t;
 #define LIMB_DIGITS 9
 #define LIMB_MAX ((limb_t)999999999)  /* 10**LIMB_DIGITS - 1 */
 #define BASEC_P 5553
@@ -108,9 +108,9 @@ static limb_t powers_of_ten[LIMB_DIGITS] = {
 
 /* ... else fall back to short and long, and make LIMB_DIGITS 4. */
 
-typedef short limb_t;
-typedef long double_limb_t;
-typedef long digit_limb_t;
+typedef unsigned short limb_t;
+typedef unsigned long double_limb_t;
+typedef unsigned long digit_limb_t;
 #define LIMB_DIGITS 4
 #define LIMB_MAX ((limb_t)9999)
 #define BASEC_P 5890
@@ -175,9 +175,8 @@ limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 {
 	limb_t sum, test;
 	sum = a + b + (c ? LIMB_ONE : LIMB_ZERO);
-	test = sum - LIMB_BASE;
-	if (test >= 0) {
-		*r = test;
+	if (sum >= LIMB_BASE) {
+		*r = sum - LIMB_BASE;
 		return true;
 	}
 	else {
@@ -194,7 +193,7 @@ limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
 {
 	limb_t diff;
 	diff = a - b - (c ? LIMB_ONE : LIMB_ZERO);
-	if (diff < 0) {
+	if (diff > a) {
 		*r = diff + LIMB_BASE;
 		return true;
 	}
