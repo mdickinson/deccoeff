@@ -156,10 +156,10 @@ typedef unsigned long double_limb_t;
 typedef unsigned long digit_limb_t;
 #define LIMB_DIGITS 4
 #define LIMB_MAX ((limb_t)9999)
-#define BASEC_P 5890
-#define BASEC_Q 6649
-#define BASECI_P 1717
-#define BASECI_Q 1521
+#define BASEC_P 1717
+#define BASEC_Q 1521
+#define BASECI_P 5890
+#define BASECI_Q 6649
 static limb_t powers_of_ten[LIMB_DIGITS] = {
 	1,
 	10,
