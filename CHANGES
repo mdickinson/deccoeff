@@ -1,6 +1,17 @@
 Changes since version 0.2
 -------------------------
 
+Add some profiling code for multiplication.
+
+Add code to use 64-bit limbs (with 18 digits to a limb), if an
+unsigned 128-bit type is available.
+
+Fix bug in base conversion constants:  constants were swapped around
+when LIMB_DIGITS == 4.
+
+Fix bug in limb_getdigit:  it checks that n < 9;  should have been
+n < LIMB_DIGITS
+
 Fix rich comparisons to do type conversion.
 
 Test-suite for deccoeff module added
