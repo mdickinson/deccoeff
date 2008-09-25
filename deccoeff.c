@@ -1,3 +1,8 @@
+/* To do: add LIMB_DIGITS = 8 option, and make it possible to
+   configure LIMB_DIGITS using the configure script.
+
+   Consider whether alignment is slowing down 64-bit limb type. */
+
 /*
  * deccoeff.Deccoeff is a class implementing arbitrary-precision
  * unsigned integer arithmetic in a decimal base.  As the name
