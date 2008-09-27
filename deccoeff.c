@@ -1,5 +1,6 @@
 /* To do: add LIMB_DIGITS = 8 option, and make it possible to
    configure LIMB_DIGITS using the configure script.
+   Reformat C code in py3k style. (4-space indents, no tabs)
 
    Consider whether alignment is slowing down 64-bit limb type. */
 
