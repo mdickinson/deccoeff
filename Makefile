@@ -10,6 +10,7 @@ clean:
 	-rm *.pyc
 	-rm config.status config.log deccoeff_config.h
 	-rm -fr autom4te.cache/
+	-rm telco/telco.out
 
 distclean: clean
 	-rm deccoeff_config.h.in
