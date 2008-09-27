@@ -1,3 +1,3 @@
-import decimal
-D = decimal.Decimal
-DI = decimal.Deccoeff
+from deccoeff import *
+from decimal import *
+D = Deccoeff
