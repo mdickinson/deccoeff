@@ -442,6 +442,17 @@ limb_cmp(limb_t a, limb_t b)
 		return 0;
 }
 
+/* a == b iff a - b is zero */
+
+static bool
+limb_eq(limb_t a, limb_t b)
+{
+	limb_t diff;
+	limb_sbb(&diff, a, b, false);
+	return !limb_bool(diff);
+}
+
+
 /* a < b iff a - b overflows */
 
 static bool
@@ -588,6 +599,38 @@ limbs_sub(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n)
 	for (i=0; i < n; i++)
 		carry = limb_sbb(res+i, a[i], b[i], carry);
 	return carry;
+}
+
+/* take the absolute value of the difference between n-limb numbers a and b,
+   returning true if a < b, false if a >= b. */
+
+static bool
+limbs_diff(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n)
+{
+	Py_ssize_t i;
+	bool carry, neg;
+
+	/* reduce to case where top limbs differ */
+	while (n > 0 && limb_eq(a[n-1], b[n-1])) {
+		res[n-1] = LIMB_ZERO;
+		n--;
+	}
+	if (n == 0)
+		return false;
+
+	/* now reduce to case a > b */
+	neg = limb_lt(a[n-1], b[n-1]);
+	if (neg) {
+		const limb_t *temp;
+		temp = a; a = b; b = temp;
+	}
+
+	/* subtract */
+	carry = false;
+	for (i=0; i < n; i++)
+		carry = limb_sbb(res+i, a[i], b[i], carry);
+	assert(!carry);
+	return neg;
 }
 
 /* multiply a_size-limb number a by single limb x, getting a_size-limb result
@@ -858,6 +901,186 @@ limbs_to_longdigits(digit *b, const limb_t *a, Py_ssize_t a_size)
 			b[b_size++] = digit_limb_swap(&high, 0, high);
 	}
 	return b_size;
+}
+
+/* print a limb array; debugging aid */
+
+static void
+limbs_printf(const char *name, const limb_t *a, Py_ssize_t a_size)
+{
+	Py_ssize_t i;
+	printf("%s = [", name);
+
+	for (i=0; i<a_size; i++) {
+		if (i != 0)
+			printf(", ");
+		printf("%09u", a[i]);
+	}
+	printf("]\n");
+}
+
+/****************************
+ * Karatsuba multiplication *
+ ****************************/
+
+/* Routines for fast multiplication when the multiplicand and
+   multiplier have the same number of limbs. */
+
+/*
+   (a1 B + a0) * (b1 B + b0) =
+        a1 b1 B^2 +
+        (a1 b1 + a0 b0 - (a1-a0)(b1-b0)) B +
+        a0 b0.
+*/
+
+/* notes:
+
+   (1) there's no real need to pass w_size around, but it helps guard
+       against errors
+   (2) slice notation in the comments below is as in Python:
+       res[2n:4n] means res[2*n] through res[4*n-1].
+ */
+
+/* How much workspace do we need?  Write W(n) for the amount
+   of workspace required for an n*n multiply.  Then:
+
+   W(1) = 0
+   W(2n) = 2n + W(n)  (2n for |a0-a1||b0-b1|, W(n) for recursive mults)
+   W(2n+1) = (2n+2) + W(n+1)
+*/
+
+/* limbs_kmul_* and limbs_muln_dispatch call each other recursively,
+   so we need a forward declaration */
+
+static void
+limbs_muln_dispatch(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n,
+		    limb_t *w, Py_ssize_t w_size);
+
+/* multiply 2n-limb number a by 2n-limb number b giving 4n-limb result
+   in res.  w provides workspace. */
+
+static void
+limbs_kmul_even(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n,
+              limb_t *w, Py_ssize_t w_size)
+{
+	bool sign, carry;
+	limb_t top, *c;
+	Py_ssize_t i, two_n;
+
+	assert(n >= 1);
+
+	/* take 2*n limbs of workspace from w */
+	two_n = 2*n;
+	assert(w_size >= two_n);
+	c = w;
+	w += two_n;
+	w_size -= two_n;
+
+	/* res[0:n] = abs(a[0:n] - a[n:2n])
+	   res[n:2n] = abs(b[0:n] - b[n:2n]) */
+	sign = limbs_diff(res, a, a+n, n);
+	sign ^= limbs_diff(res+n, b, b+n, n);
+	/* c[0:2n] = res[0:n] * res[n:2n]
+	   res[0:2n] = a[0:n] * b[0:n]
+	   res[2n:4n] = a[n:2n] * b[n:2n] */
+	limbs_muln_dispatch(c, res, res+n, n, w, w_size);
+	limbs_muln_dispatch(res, a, b, n, w, w_size);
+	limbs_muln_dispatch(res+two_n, a+n, b+n, n, w, w_size);
+	/* c[0:2n] = res[0:2n] +- c[0:2n] */
+	/* c[0:2n] += res[2n:4n] */
+	if (sign)
+		carry = limbs_add(c, c, res, two_n);
+	else
+		carry = limbs_sub(c, res, c, two_n);
+	carry ^= limbs_add(c, c, res+two_n, two_n);
+	top = carry ? LIMB_ONE : LIMB_ZERO;
+	/* res[n:3n] += c[0:2n] */
+	carry = limbs_add(res+n, res+n, c, two_n);
+	i = 3*n;
+	carry = limb_adc(res+i, res[i], top, carry);
+	i++;
+	while (carry) {
+		carry = limb_adc(res+i, res[i], LIMB_ZERO, carry);
+		i++;
+	}
+	assert(i <= 4*n);
+}
+
+/* as limbs_kmul_even, but for the case where a and b both have 2*n+1 limbs.
+   Split a[0:2n+1] into a[0:n+1] and a[n+1:2n+1], and similarly for b. */
+
+static void
+limbs_kmul_odd(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n,
+              limb_t *w, Py_ssize_t w_size)
+{
+	bool sign, carry;
+	limb_t *c;
+	Py_ssize_t i;
+
+	assert(n >= 1);
+	assert(w_size >= 2*n+2);
+
+	c = w;
+	w += (2*n+2);
+	w_size -= (2*n+2);
+
+	/* res[0:n+1] = a[0:n+1] - (a[n+1:2n+1] + [0]) */
+	if (limb_bool(a[n])) {
+		carry = limbs_sub(res, a, a+n+1, n);
+		limb_sbb(res+n, a[n], LIMB_ZERO, carry);
+		sign = false;
+	}
+	else {
+		sign = limbs_diff(res, a, a+n+1, n);
+		res[n] = LIMB_ZERO;
+	}
+	/* res[n+1:2n+2] = b[0:n+1] - (b[n+1:2n+1] + [0]) */
+	if (limb_bool(b[n])) {
+		carry = limbs_sub(res+n+1, b, b+n+1, n);
+		limb_sbb(res+2*n+1, b[n], LIMB_ZERO, carry);
+	}
+	else {
+		sign ^= limbs_diff(res+n+1, b, b+n+1, n);
+		res[2*n+1] = LIMB_ZERO;
+	}
+	limbs_muln_dispatch(c, res, res+n+1, n+1, w, w_size);
+	limbs_muln_dispatch(res, a, b, n+1, w, w_size);
+	limbs_muln_dispatch(res+2*n+2, a+n+1, b+n+1, n, w, w_size);
+	/* the eventual value of c[0:2n+2] is in [0, 2*BASE**(2n+1)), so we
+	   can ignore carries out of the top of c. */
+	if (sign)
+		limbs_add(c, c, res, 2*n+2);
+	else
+		limbs_sub(c, res, c, 2*n+2);
+	carry = limbs_add(c, c, res+2*n+2, 2*n);
+	carry = limb_adc(c+2*n, c[2*n], LIMB_ZERO, carry);
+	limb_adc(c+2*n+1, c[2*n+1], LIMB_ZERO, carry);
+	assert(limb_eq(c[2*n+1], LIMB_ZERO) ||
+	       limb_eq(c[2*n+1], LIMB_ONE));
+	carry = limbs_add(res+n+1, res+n+1, c, 2*n+2);
+	i = 3*n+3;
+	while (carry) {
+		carry = limb_adc(res+i, res[i], LIMB_ZERO, carry);
+		i++;
+	}
+	assert(i <= 4*n+2);
+}
+
+/* do an n-limb by n-limb multiplication; this function dispatches the
+   multiplication operation depending on the value of n. */
+
+#define KARATSUBA_CUTOFF 70
+
+static void
+limbs_muln_dispatch(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n,
+		    limb_t *w, Py_ssize_t w_size)
+{
+	if (n <= KARATSUBA_CUTOFF)
+		limbs_mul(res, a, n, b, n);
+	else if (n % 2 == 0)
+		limbs_kmul_even(res, a, b, n / 2, w, w_size);
+	else
+		limbs_kmul_odd(res, a, b, n / 2, w, w_size);
 }
 
 /**************************
@@ -1137,14 +1360,41 @@ _deccoeff_subtract(deccoeff *a, deccoeff *b)
 static deccoeff *
 _deccoeff_multiply(deccoeff *a, deccoeff *b)
 {
-	Py_ssize_t a_size, b_size;
-	deccoeff *z;
+	Py_ssize_t a_size, b_size, w_size;
+	deccoeff *z, *w;
+
 	a_size = Py_SIZE(a);
 	b_size = Py_SIZE(b);
 	z = _deccoeff_new(a_size + b_size);
 	if (z == NULL)
 		return NULL;
-	limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
+
+	/* try out Karatsuba multiplication for balanced multiplications */
+	if (a_size == b_size) {
+		/* figure out how much workspace we need, and allocate it.
+		   If n is even:
+		     W(n) = n + W(n/2)
+		   else
+		   W(n) = (n+1) + W((n+1)/2). */
+		Py_ssize_t n;
+		w_size = 0;
+		n = a_size;
+		while (n > 1) {
+			n += n % 2;
+			w_size += n;
+			n /= 2;
+		}
+		w = _deccoeff_new(w_size);
+		if (w == NULL) {
+			Py_DECREF(z);
+			return NULL;
+		}
+		limbs_muln_dispatch(z->ob_limbs, a->ob_limbs, b->ob_limbs,
+				    a_size, w->ob_limbs, w_size);
+
+	}
+	else
+		limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
 	return deccoeff_checksize(deccoeff_normalize(z));
 }
 
