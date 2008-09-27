@@ -348,13 +348,15 @@ limb_msd(limb_t x) {
 #error "unrecognised value for LIMB_DIGITS"
 #endif
 
-/* Multiply b by a, assuming that b_size <= a_size and b_size <=
-   MAX_PARTIALS.  Put result in *res.  The bottom a_size limbs
-   of the result are added to the current contents of res.  The
-   top b_size limbs replace what's already in res. */
+/* Compute a * b + c, in the following special case:
+     b_size <= a_size, and
+     b_size <= MAX_PARTIALS, and
+     c_size == a_size.
+   On input, c is stored in the first a_size digits of res.  On
+   output, the result is in res. */
 
 static void
-limbs_fmul_block(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+limbs_mul_block(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 	   const limb_t *b, Py_ssize_t b_size)
 {
 	Py_ssize_t i, j, k;
@@ -389,7 +391,7 @@ limbs_fmul_block(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 }
 
 static void
-limbs_fmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 	   const limb_t *b, Py_ssize_t b_size)
 {
 	Py_ssize_t k;
@@ -406,12 +408,12 @@ limbs_fmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 		res[k] = LIMB_ZERO;
 
 	while(b_size >= MAX_PARTIALS) {
-		limbs_fmul_block(res, a, a_size, b, MAX_PARTIALS);
+		limbs_mul_block(res, a, a_size, b, MAX_PARTIALS);
 		b_size -= MAX_PARTIALS;
 		b += MAX_PARTIALS;
 		res += MAX_PARTIALS;
 	}
-	limbs_fmul_block(res, a, a_size, b, b_size);
+	limbs_mul_block(res, a, a_size, b, b_size);
 }
 
 #undef LIMB_BASE
@@ -601,10 +603,11 @@ limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
 	return high;
 }
 
-/* multiply a by b, getting (a_size + b_size)-limb result res */
+/* multiply a by b, getting (a_size + b_size)-limb result res;
+   superseded by limbs_mul. */
 
 static void
-limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+limbs_mul_naive(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 	  const limb_t *b, Py_ssize_t b_size)
 {
 	Py_ssize_t i, j;
@@ -1140,7 +1143,7 @@ _deccoeff_multiply(deccoeff *a, deccoeff *b)
 	z = _deccoeff_new(a_size + b_size);
 	if (z == NULL)
 		return NULL;
-	limbs_fmul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
+	limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
 	return deccoeff_checksize(deccoeff_normalize(z));
 }
 
@@ -1223,7 +1226,7 @@ _deccoeff_multiply_and_reduce(deccoeff *a, deccoeff *b, deccoeff *c)
 	z = _deccoeff_new(a_size + b_size);
 	if (z == NULL)
 		return NULL;
-	limbs_fmul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
+	limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
 	/* w = z % c */
 	w = _deccoeff_remainder(z, c);
 	Py_DECREF(z);
