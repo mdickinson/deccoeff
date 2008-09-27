@@ -339,11 +339,11 @@ limb_msd(limb_t x) {
    LIMB_DIGITS == 4, 18 if LIMB_DIGITS == 9, and 340 if LIMB_DIGITS = 18. */
 
 #if LIMB_DIGITS == 4
-#define MAX_PARTIALS 42
+#define MAX_PARTIALS 42  /* floor(2^32 / 10^8) */
 #elif LIMB_DIGITS == 9
-#define MAX_PARTIALS 18
+#define MAX_PARTIALS 18  /* floor(2^64 / 10^18) */
 #elif LIMB_DIGITS == 18
-#define MAX_PARTIALS 340
+#define MAX_PARTIALS 340 /* floor(2^128 / 10^36) */
 #else
 #error "unrecognised value for LIMB_DIGITS"
 #endif
