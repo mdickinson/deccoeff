@@ -2,7 +2,12 @@
    configure LIMB_DIGITS using the configure script.
    Reformat C code in py3k style. (4-space indents, no tabs)
 
-   Consider whether alignment is slowing down 64-bit limb type. */
+   Consider whether alignment is slowing down 64-bit limb type.
+   Put multiplication count in karatsuba algorithm, to check theory.
+
+   If Py_DEBUG is defined, initialize newly allocated limbs to random stuff.
+   Or does this already happen automatically?
+ */
 
 /*
  * deccoeff.Deccoeff is a class implementing arbitrary-precision
@@ -18,9 +23,10 @@
  *  To do
  *  -----
  *  expand Deccoeff-specific tests
- *  improve and correct documentation
+ *  improve and correct documentation; remove outdated deccoeff.txt; ReST!
  *  fast recursive algorithms for multiplication, division, base conversion
  *  (fast recursive) square root
+ *  fix tp_basicsize and tp_itemsize calculations
  *
  *  minor optimization opportunities:
  *  - make limb_error checks only for debug build
