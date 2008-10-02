@@ -355,12 +355,8 @@ limb_msd(limb_t x) {
 #error "unrecognised value for LIMB_DIGITS"
 #endif
 
-/* Compute a * b + c, in the following special case:
-     b_size <= a_size, and
-     b_size <= MAX_PARTIALS, and
-     c_size == a_size.
-   On input, c is stored in the first a_size digits of res.  On
-   output, the result is in res. */
+/* basecase multiplication, when a_size <= b_size, a_size <= MAX_PARTIALS.
+   Compute a*b and add into the current contents of res. */
 
 static void
 limbs_mul_block(limb_t *res, const limb_t *a, Py_ssize_t a_size,
@@ -368,33 +364,34 @@ limbs_mul_block(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 {
 	Py_ssize_t i, j, k;
 	double_limb_t acc;
+	bool carry;
 
 	assert(b_size <= a_size);
 	assert(b_size <= MAX_PARTIALS);
 
-	/* XXX explain how this algorithm works */
-
 	acc = 0;
+	carry = false;
 	k = 0;
 	for (k=0; k < b_size; k++) {
 		for (i=k, j=0; i >= 0 ; i--, j++)
 			acc += (double_limb_t)(a[i])*b[j];
-		res[k] += acc % LIMB_BASE;
+		carry = limb_adc(res+k, res[k], acc % LIMB_BASE, carry);
 		acc /= LIMB_BASE;
 	}
 	for (; k < a_size; k++) {
 		for (i=k, j=0; j < b_size; i--, j++)
 			acc += (double_limb_t)(a[i])*b[j];
-		res[k] += acc % LIMB_BASE;
+		carry = limb_adc(res+k, res[k], acc % LIMB_BASE, carry);
 		acc /= LIMB_BASE;
 	}
 	for (; k < a_size + b_size; k++) {
 		for (i=a_size-1, j=k-i; j < b_size; i--, j++)
 			acc += (double_limb_t)(a[i])*b[j];
-		res[k] = acc % LIMB_BASE;
+		carry = limb_adc(res+k, res[k], acc % LIMB_BASE, carry);
 		acc /= LIMB_BASE;
 	}
 	assert(acc == 0);
+	assert(!carry);
 }
 
 static void
@@ -411,7 +408,7 @@ limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 		temp_size = a_size; a_size = b_size; b_size = temp_size;
 	}
 
-	for (k = 0; k < a_size; k++)
+	for (k = 0; k < a_size + b_size; k++)
 		res[k] = LIMB_ZERO;
 
 	while(b_size >= MAX_PARTIALS) {
@@ -556,46 +553,6 @@ limb_getdigit(limb_t x, Py_ssize_t n)
    don't take care of memory allocation; they assume that sufficient space is
    provided for their results. */
 
-/* increment a_size-limb number a if carry is true, else just copy it; gives
-   a_size-limb result and returns a carry */
-
-static bool
-limbs_incc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
-{
-	Py_ssize_t i;
-	for (i=0; i < a_size; i++)
-		carry = limb_adc(res+i, a[i], LIMB_ZERO, carry);
-	return carry;
-}
-
-/* decrement a_size-limb number a if carry is true, else just copy it; gives
-   a_size-limb result and returns a carry */
-
-static bool
-limbs_decc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
-{
-	Py_ssize_t i;
-	for (i=0; i < a_size; i++)
-		carry = limb_sbb(res+i, a[i], LIMB_ZERO, carry);
-	return carry;
-}
-
-/* subtract limbs from zero, with borrow.
-
-   If carry == true on input, this effectively computes the nine's complement,
-   and carry will always be true on output.  If carry == false on input,
-   this computes a tens' complement, and carry is true on output iff
-   the argument (and result) is nonzero. */
-
-static bool
-limbs_complement(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
-{
-	Py_ssize_t i;
-	for (i=0; i < a_size; i++)
-		carry = limb_sbb(res+i, LIMB_ZERO, a[i], carry);
-	return carry;
-}
-
 /* add n-limb numbers a and b, producing an n-limb result res and a carry */
 
 static bool
@@ -620,6 +577,42 @@ limbs_sub(limb_t *res, const limb_t *a, const limb_t *b, Py_ssize_t n)
 	carry = false;
 	for (i=0; i < n; i++)
 		carry = limb_sbb(res+i, a[i], b[i], carry);
+	return carry;
+}
+
+/* increment a_size-limb number a if carry is true, else just copy it; gives
+   a_size-limb result and returns a carry */
+
+static bool
+limbs_incc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
+{
+	Py_ssize_t i;
+	for (i=0; i < a_size; i++)
+		carry = limb_adc(res+i, a[i], LIMB_ZERO, carry);
+	return carry;
+}
+
+/* decrement a_size-limb number a if carry is true, else just copy it; gives
+   a_size-limb result and returns a carry */
+
+static bool
+limbs_decc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
+{
+	Py_ssize_t i;
+	for (i=0; i < a_size; i++)
+		carry = limb_sbb(res+i, a[i], LIMB_ZERO, carry);
+	return carry;
+}
+
+/* subtract limbs from zero, with borrow.  Equivalent to the nines' complement
+   if carry == true on input, and the ten's complement otherwise. */
+
+static bool
+limbs_cmpl(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
+{
+	Py_ssize_t i;
+	for (i=0; i < a_size; i++)
+		carry = limb_sbb(res+i, LIMB_ZERO, a[i], carry);
 	return carry;
 }
 
@@ -689,8 +682,9 @@ limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
 	return high;
 }
 
-/* multiply a by b, getting (a_size + b_size)-limb result res;
-   superseded by limbs_mul. */
+/* multiply a by b, getting (a_size + b_size)-limb result res; superseded by
+   limbs_mul.  We don't use this any more; it's kept around for debugging
+   purposes. */
 
 static void
 limbs_mul_naive(limb_t *res, const limb_t *a, Py_ssize_t a_size,
@@ -1036,122 +1030,6 @@ limbs_printf(const char *name, const limb_t *a, Py_ssize_t a_size)
        res[4*n-1], inclusive.
  */
 
-/* How much workspace do we need?  Write W(n) for the amount
-   of workspace required for an n*n multiply.  Then:
-
-   W(1) = 0
-   W(2n) = 2n + W(n)  (2n for |a0-a1||b0-b1|, W(n) for recursive mults)
-   W(2n+1) = (2n+2) + W(n+1)
-*/
-
-/* limbs_kmul and limbs_mul_dispatch call each other recursively,
-   so we need a forward declaration */
-
-static void
-limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-		   const limb_t *b, Py_ssize_t b_size,
-		   limb_t *w, Py_ssize_t w_size);
-
-
-/* Do a single Karatsuba multiplication, calling limbs_mul_dispatch to handle
-   the recursive calls.  The inputs a and b must be reasonably close in size:
-   on input, k is an integer satisfying k < a_size <= 2*k and k < b_size <=
-   2*k.  w provides workspace of size w_size. */
-
-static void
-limbs_kmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-		const limb_t *b, Py_ssize_t b_size, Py_ssize_t k,
-		limb_t *w, Py_ssize_t w_size)
-{
-	bool carry, sign;
-	limb_t top;
-	const limb_t *a0, *a1, *b0, *b1;
-	limb_t *c, *d, *e;
-	limb_t *a0b0, *a1b1;
-	Py_ssize_t a0_size, a1_size, b0_size, b1_size, c_size, d_size, e_size;
-	Py_ssize_t a0b0_size, a1b1_size, res_size;
-	Py_ssize_t i;
-
-	/* check preconditions */
-	assert(k < a_size && a_size <= 2*k && k < b_size && b_size <= 2*k);
-
-	res_size = a_size + b_size;
-
-	/* split a and b */
-	a0 = a; a0_size = k; a1 = a+a0_size; a1_size = a_size-a0_size;
-	b0 = b; b0_size = b_size-k; b1 = b+b0_size; b1_size = b_size-b0_size;
-
-	/* allocate workspace from res for c */
-	c_size = k; assert(res_size >= c_size);
-	c = res; res += c_size; res_size -= c_size;
-
-	/* c = a1, padded with zeros */
-	limbs_copy(c, a1, a1_size);
-	limbs_zero(c+a1_size, c_size-a1_size);
-	/* c = abs(a0 - a1) */
-	sign = limbs_diff(c, a0, c, k);
-
-	/* allocate workspace from res for d */
-	d_size = k; assert(res_size >= d_size);
-	d = res; res += d_size; res_size -= d_size;
-	/* copy b0*B**(2k-n) into d */
-	limbs_zero(d, d_size-b0_size);
-	limbs_copy(d+(d_size-b0_size), b0, b0_size);
-	/* d = b1 - b0*B**(2k-n) */
-	sign ^= limbs_diff(d, b1, d, k);
-
-	/* allocate space for e from w */
-	e_size = 2*k; assert(w_size >= e_size);
-	e = w; w += e_size; w_size -= e_size;
-
-	/* e = c*d */
-	limbs_mul_dispatch(e, c, k, d, k, w, w_size);
-
-	/* free up space used by c and d */
-	res -= d_size; res_size += d_size; d = NULL;
-	res -= c_size; res_size += c_size; c = NULL;
-
-	/* other two multiplications; put result in res */
-	a0b0 = res;
-	a0b0_size = b_size;
-	a1b1 = res+b_size;
-	a1b1_size = a_size;
-	assert(b0_size <= a0_size);
-	limbs_mul_dispatch(a0b0, b0, b0_size, a0, a0_size, w, w_size);
-	assert(a1_size <= b1_size);
-	limbs_mul_dispatch(a1b1, a1, a1_size, b1, b1_size, w, w_size);
-
-	/* patch up value of e */
-	if (sign) {
-		/* e = a1b1 - e; note that a1b1 needs to be extended */
-		carry = limbs_sub(e, a1b1, e, a1b1_size);
-		carry = limbs_complement(e+a1b1_size, e+a1b1_size,
-					    e_size - a1b1_size, carry);
-	}
-	else {
-		/* e += a1b1; a1b1 needs to be zero-extended */
-		carry = limbs_add(e, a1b1, e, a1b1_size);
-		carry = limbs_incc(e+a1b1_size, e+a1b1_size,
-					    e_size - a1b1_size, carry);
-	}
-	/* e += a0b0 * B**(2k-n) */
-	carry ^= limbs_add(e+(e_size - a0b0_size), e+(e_size - a0b0_size),
-			   a0b0, a0b0_size);
-	/* turn that carry into a top limb */
-	top = carry ? LIMB_ONE : LIMB_ZERO;
-
-	/* now add e into res[b_size-k, b_size+k] */
-	carry = limbs_add(res+b_size-k, res+b_size-k, e, e_size);
-	/* and extra top limb of e */
-	i = b_size+k;
-	carry = limb_adc(res+i, res[i], top, carry); i++;
-	/* propagate any carry */
-	while (carry) {
-		carry = limb_adc(res+i, res[i], LIMB_ZERO, carry); i++;
-	}
-	assert(i <= a_size+b_size);
-}
-
 /* decide how to handle a particular size of multiplication, and
    dispatch to the appropriate function to do the computation */
 
@@ -1175,7 +1053,7 @@ limbs_kmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
    Case 0: W(1, n).  No workspace required.
 
    Case 1: W(k, k), k a power of 2:
-      W(k, k) = 2k + W(k/2, k/2); W(1, 1) = 0.  So W(k, k) = 2k-2.
+      W(k, k) = 2k+max(1, W(k/2, k/2)); W(1, 1) = 0.  So W(k, k) = 2k-1.
 
    Case 2: W(m, n),  k < m <= n <= 2k, k a power of 2:
       W(m, n) = 4k-2, assuming that W(m, k) <= 2k-2 for all m < k...
@@ -1200,122 +1078,118 @@ limbs_kmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
       In all cases, 4l-2 limbs are enough.
 */
 
+/* limbs_kmul and limbs_mul_dispatch call each other recursively,
+   so we need a forward declaration */
+
+static void
+limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+		   const limb_t *b, Py_ssize_t b_size,
+		   limb_t *w, Py_ssize_t w_size);
+
+
+/* Karatsuba multiplication.  On input, k is an integer satisfying k < a_size
+   <= 2*k and k < b_size <= 2*k.  w provides workspace of size w_size. */
+
+static void
+limbs_kmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+		const limb_t *b, Py_ssize_t b_size, Py_ssize_t k,
+		limb_t *w, Py_ssize_t w_size)
+{
+	bool carry, sign;
+
+	/* check preconditions */
+	assert(k < a_size && a_size <= 2*k && k < b_size && b_size <= 2*k);
+
+	/* abs(a0 - a1) */
+	limbs_copy(res, a+k, a_size-k);
+	limbs_zero(res+a_size-k, 2*k-a_size);
+	sign = limbs_diff(res, a, res, k);
+
+	/* abs(b1 - b0*B**(2k-n)) */
+	limbs_zero(res+k, 2*k-b_size);
+	limbs_copy(res+k+(2*k-b_size), b, b_size-k);
+	sign ^= limbs_diff(res+k, b+b_size-k, res+k, k);
+
+	/* need 2k+1 limbs to store central product */
+	assert(w_size >= 2*k+1);
+	limbs_mul_dispatch(w, res, k, res+k, k, w+2*k, w_size-2*k);
+	/* products a0*b0 and a1*b1 are placed directly into res */
+	limbs_mul_dispatch(res, b, b_size-k, a, k, w+2*k, w_size-2*k);
+	limbs_mul_dispatch(res+b_size, a+k, a_size-k, b+b_size-k, k,
+			   w+2*k, w_size-2*k);
+	if (sign) {
+		carry = limbs_sub(w, res+b_size, w, a_size);
+		carry = limbs_cmpl(w+a_size, w+a_size, 2*k-a_size, carry);
+	}
+	else {
+		carry = limbs_add(w, res+b_size, w, a_size);
+		carry = limbs_incc(w+a_size, w+a_size, 2*k-a_size, carry);
+	}
+	carry ^= limbs_add(w+2*k-b_size, w+2*k-b_size, res, b_size);
+	w[2*k] = carry ? LIMB_ONE : LIMB_ZERO;
+	/* add central term in */
+	carry = limbs_add(res+b_size-k, res+b_size-k, w, 2*k+1);
+	carry = limbs_incc(res+b_size+k+1, res+b_size+k+1, a_size-k-1, carry);
+	assert(!carry);
+}
+
+/* decide how to handle a particular size of multiplication, and
+   dispatch to the appropriate function to do the computation.
+   Assumes that 1 <= a_size <= b_size on input. */
+
+#define KARATSUBA_CUTOFF 128
+
 static void
 limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 		   const limb_t *b, Py_ssize_t b_size,
 		   limb_t *w, Py_ssize_t w_size)
 {
-	Py_ssize_t twok, c_size;
-	limb_t *c;
+	Py_ssize_t k;
 	bool carry;
+	assert(1 <= a_size && a_size <= b_size);
 
-	/*
-	printf("Entering limbs_mul_dispatch\n");
-	limbs_printf("a", a, a_size);
-	limbs_printf("b", b, b_size);
-	printf("res is %p\n", res);
-	*/
-
-	/* NB for recursive calls, b_size will already be a power
-	   of two;  make use of this fact */
-
-	assert(1 <= a_size);
-	assert(a_size <= b_size);
-
-	if (a_size == 1) {
-		/* XXX should replace with limbs_mul1 */
+	if (a_size < KARATSUBA_CUTOFF) {
+		/* basecase multiplication */
 		limbs_mul(res, a, a_size, b, b_size);
 		return;
 	}
-
-	/* find 2k, the smallest power of 2 not less than a_size */
-	twok = 1;
-	while (twok < a_size)
-		twok *= 2;
-
-	/* printf("twok is %ld\n", twok); */
-
-	assert(twok % 2 == 0 && twok/2 < a_size && a_size <= twok);
-	assert(twok/2 < b_size);
-	if (b_size <= twok) {
-		limbs_kmul(res, a, a_size, b, b_size, twok/2, w, w_size);
+	/* find k, the smallest power of 2 not less than a_size */
+	k = 2;
+	while (k < a_size)
+		k *= 2;
+	assert(k/2 < a_size && a_size <= k);
+	/* if sizes are balanced, do a single Karatsuba multiplication */
+	if (b_size <= k) {
+		limbs_kmul(res, a, a_size, b, b_size, k/2, w, w_size);
 		return;
 	}
-
-	/* b_size > twok;  split */
-
-	/* printf("splitting...\n"); */
-	limbs_kmul(res, a, a_size, b, twok, twok/2, w, w_size);
-	/* limbs_printf("res", res, a_size+twok); */
-	b += twok;
-	b_size -= twok;
-	/* printf("Before addition: res = %p\n", res); */
-	res += twok;
-	/* printf("After addition: res = %p\n", res); */
-
-	while (b_size > twok) {
-		/* printf("Entering while loop...\n"); */
-		/* space for result of next multiplication */
-		c_size = a_size + twok;  assert(w_size >= c_size);
-		c = w; w += c_size; w_size -= c_size;
-
-		/* next block */
-		limbs_kmul(c, a, a_size, b, twok, twok/2, w, w_size);
-
-		/* add result into res; first a_size limbs of res
-		   are already filled; rest are undefined */
-		carry = limbs_add(res, res, c, a_size);
-		carry = limbs_incc(res+a_size, c+a_size, twok, carry);
+	/* otherwise, while b_size > k, split off a k-by-a_size chunk and
+	   compute using Karatsuba.  The result from the first chunk goes
+	   straight into res; results from subsequent chunks go into the
+	   workspace and are then added into res */
+	limbs_kmul(res, a, a_size, b, k, k/2, w, w_size);
+	b += k; b_size -= k; res += k;
+	while (b_size > k) {
+		assert(w_size >= a_size+k);
+		limbs_kmul(w, a, a_size, b, k, k/2,
+			   w+a_size+k, w_size-a_size-k);
+		carry = limbs_add(res, res, w, a_size);
+		carry = limbs_incc(res+a_size, w+a_size, k, carry);
 		assert(!carry);
-
-		b += twok;
-		b_size -= twok;
-		res += twok;
-
-		w -= c_size; w_size += c_size; c = NULL;
+		b += k; b_size -= k; res += k;
 	}
-
-	/* now 0 < b_size <= twok.  Call the dispatch algorithm again
-	   to decide what to do next.  First swap if necessary. */
-
-	/* allocate space */
-	c_size = a_size+b_size; assert(w_size >= c_size);
-	c = w; w += c_size; w_size -= c_size;
-
-	/* do the multiplication */
-	if (a_size <= b_size) {
-		/* printf("Branch 1\n"); */
-		limbs_mul_dispatch(c, a, a_size, b, b_size, w, w_size);
-	}
-	else {
-		/* printf("Branch 2\n"); */
-		limbs_mul_dispatch(c, b, b_size, a, a_size, w, w_size);
-	}
-
-	/*
-	limbs_printf("c", c, c_size);
-	printf("res is now %p\n", res);
-	limbs_printf("res[0:a_size]", res, a_size);
-	limbs_printf("c[0:a_size]", c, a_size);
-	*/
-	carry = limbs_add(res, res, c, a_size);
-	carry = limbs_incc(res+a_size, c+a_size, b_size, carry);
+	/* last chunk */
+	assert(w_size >= a_size+b_size);
+	if (b_size > k/2)
+		limbs_kmul(w, a, a_size, b, b_size, k/2,
+			   w+a_size+b_size, w_size-a_size-b_size);
+	else
+		limbs_mul_dispatch(w, b, b_size, a, a_size,
+				   w+a_size+b_size, w_size-a_size-b_size);
+	carry = limbs_add(res, res, w, a_size);
+	carry = limbs_incc(res+a_size, w+a_size, b_size, carry);
 	assert(!carry);
-
-	/*
-	limbs_printf("res", res, a_size+b_size);
-	*/
-
-	w -= c_size; w_size += c_size; c = NULL;
 }
-
-
-
-
-/* do an n-limb by n-limb multiplication; this function dispatches the
-   multiplication operation depending on the value of n. */
-
-#define KARATSUBA_CUTOFF 70
 
 /**************************
  * deccoeff : definitions *
@@ -1340,9 +1214,6 @@ typedef struct {
   PyObject_VAR_HEAD
   limb_t ob_limbs[1];
 } deccoeff;
-
-/* XXX this results in wasted memory (DECCOEFF_BASICSIZE is too
-   large); fix me! */
 
 #define DECCOEFF_ITEMSIZE sizeof(limb_t)
 #define DECCOEFF_BASICSIZE sizeof(deccoeff)
@@ -1622,7 +1493,7 @@ _deccoeff_multiply(deccoeff *a, deccoeff *b)
 	while (w_size < b_size)
 		w_size *= 2;
 
-	w_size = 2*(w_size - 1);
+	w_size = 2*w_size - 1;
 	w = _deccoeff_new(w_size);
 	if (w == NULL) {
 		Py_DECREF(z);
