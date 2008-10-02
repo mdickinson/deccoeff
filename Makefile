@@ -1,4 +1,4 @@
-PYTHON = python3.0
+PYTHON = ../py3k/python.exe
 
 all: deccoeff.so
 module:
