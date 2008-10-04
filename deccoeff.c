@@ -2241,6 +2241,13 @@ deccoeff_hash(deccoeff *v)
     return (y == -1) ? -2 : y;
 }
 
+DECCOEFF_WRAP_BINOP(deccoeff_add, _deccoeff_add)
+DECCOEFF_WRAP_BINOP(deccoeff_subtract, _deccoeff_subtract)
+DECCOEFF_WRAP_BINOP(deccoeff_multiply, _deccoeff_multiply)
+DECCOEFF_WRAP_BINOP(deccoeff_remainder, _deccoeff_remainder)
+DECCOEFF_WRAP_BINOP(deccoeff_divmod, _deccoeff_divmod)
+DECCOEFF_WRAP_BINOP(deccoeff_floor_divide, _deccoeff_floor_divide)
+
 static PyMethodDef deccoeff_methods[] = {
     {NULL, NULL}
 };
@@ -2250,13 +2257,6 @@ static PyMappingMethods deccoeff_as_mapping = {
     (binaryfunc)deccoeff_subscript,         /*mp_subscript*/
     0, /*mp_ass_subscript*/
 };
-
-DECCOEFF_WRAP_BINOP(deccoeff_add, _deccoeff_add)
-DECCOEFF_WRAP_BINOP(deccoeff_subtract, _deccoeff_subtract)
-DECCOEFF_WRAP_BINOP(deccoeff_multiply, _deccoeff_multiply)
-DECCOEFF_WRAP_BINOP(deccoeff_remainder, _deccoeff_remainder)
-DECCOEFF_WRAP_BINOP(deccoeff_divmod, _deccoeff_divmod)
-DECCOEFF_WRAP_BINOP(deccoeff_floor_divide, _deccoeff_floor_divide)
 
 static PyNumberMethods deccoeff_as_number = {
     deccoeff_add,                           /*nb_add*/
@@ -2337,6 +2337,354 @@ static PyTypeObject deccoeff_DeccoeffType = {
     PyObject_Del,                           /* tp_free */
 };
 
+
+/*****************
+ * _Decimal type *
+ *****************/
+
+/* A finite decimal object needs a sign, a coefficient and an exponent.  An
+   infinity has a sign and nothing more; the coefficient and exponent are
+   ignored.  A nan has a sign, and carries additional information in the
+   coefficient.  The exponent is not used. */
+
+/* We encode information about the sign and type of the decimal in a series of
+   bits. */
+
+/* Recall that the total ordering for decimals is:
++finite < +inf < sNaN < qNaN */
+
+#define DEC_FLAGS_NEG (1<<0)
+#define DEC_FLAGS_SPECIAL (1<<1)
+#define DEC_FLAGS_INF  (1<<2)
+#define DEC_FLAGS_NAN (1<<3)
+#define DEC_FLAGS_SNAN (1<<4)
+#define DEC_FLAGS_QNAN (1<<5)
+#define INF_FLAGS (DEC_FLAGS_SPECIAL | DEC_FLAGS_INF)
+#define QNAN_FLAGS (DEC_FLAGS_SPECIAL | DEC_FLAGS_NAN | DEC_FLAGS_QNAN)
+#define SNAN_FLAGS (DEC_FLAGS_SPECIAL | DEC_FLAGS_NAN | DEC_FLAGS_SNAN)
+
+
+typedef int dec_flag_t;
+typedef long exp_t;
+
+typedef struct {
+    PyObject_HEAD
+    deccoeff *dec_coeff;
+    exp_t dec_exp;
+    dec_flag_t dec_flags;
+} _Decimal;
+
+static PyTypeObject deccoeff__DecimalType;
+
+/* integer used in the exponent slot of an infinity or nan */
+
+#define INVALID_EXP LONG_MAX
+
+/* internal function to create a new finite _Decimal instance, given sign,
+   coefficient and exponent.  No type checking or conversion. */
+
+static _Decimal *
+__Decimal_finite(int sign, deccoeff *coeff, long exp) {
+    _Decimal *ob;
+    assert(sign == 0 || sign == 1);
+    ob = (_Decimal *)PyObject_New(_Decimal, &deccoeff__DecimalType);
+    if (ob == NULL)
+        return NULL;
+    ob->dec_flags = sign;
+    Py_INCREF(coeff);
+    ob->dec_coeff = coeff;
+    ob->dec_exp = exp;
+    return ob;
+}
+
+/* internal function to create an infinity with the given sign */
+
+static _Decimal *
+__Decimal_inf(int sign)
+{
+    _Decimal *ob;
+    assert(sign == 0 || sign == 1);
+    ob = (_Decimal *)PyObject_New(_Decimal, &deccoeff__DecimalType);
+    if (ob == NULL)
+        return NULL;
+    ob->dec_flags = sign | INF_FLAGS;
+    ob->dec_coeff = NULL;
+    ob->dec_exp = INVALID_EXP;
+    return ob;
+}
+
+/* internal function to create a qNaN with the given sign, payload */
+
+static _Decimal *
+__Decimal_qnan(int sign, deccoeff *payload)
+{
+    _Decimal *ob;
+    assert(sign == 0 || sign == 1);
+    ob = (_Decimal *)PyObject_New(_Decimal, &deccoeff__DecimalType);
+    if (ob == NULL)
+        return NULL;
+    ob->dec_flags = sign | QNAN_FLAGS;
+    Py_INCREF(payload);
+    ob->dec_coeff = payload;
+    ob->dec_exp = INVALID_EXP;
+    return ob;
+}
+
+/* internal function to create a sNaN with the given sign, payload */
+
+static _Decimal *
+__Decimal_snan(int sign, deccoeff *payload)
+{
+    _Decimal *ob;
+    assert(sign == 0 || sign == 1);
+    ob = (_Decimal *)PyObject_New(_Decimal, &deccoeff__DecimalType);
+    if (ob == NULL)
+        return NULL;
+    ob->dec_flags = sign | SNAN_FLAGS;
+    Py_INCREF(payload);
+    ob->dec_coeff = payload;
+    ob->dec_exp = INVALID_EXP;
+    return ob;
+}
+
+static void
+_Decimal_dealloc(PyObject *self)
+{
+    _Decimal *dec;
+    /* coefficient should be present iff decimal instance is not infinite */
+    dec = (_Decimal *)self;
+    if (dec->dec_flags & DEC_FLAGS_INF)
+        assert(dec->dec_coeff == NULL);
+    else {
+        assert(dec->dec_coeff != NULL);
+        Py_DECREF(dec->dec_coeff);
+    }
+    self->ob_type->tp_free(self);
+}
+
+/* create a new finite _Decimal instance */
+
+static PyObject *
+_Decimal_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    /* create a new finite _Decimal instance, given a sequence consisting
+       of its sign (an integer), coefficient and exponent */
+
+    PyObject *ocoeff;
+    deccoeff *coeff;
+    int sign;
+    long exp;
+    static char *kwlist[] = {"sign", "coeff", "exp", 0};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "iOl:" "_Decimal", kwlist,
+                                     &sign, &ocoeff, &exp))
+        return NULL;
+    if (ocoeff->ob_type != &deccoeff_DeccoeffType) {
+        PyErr_SetString(PyExc_TypeError, "coeff should have type Deccoeff");
+        return NULL;
+    }
+    coeff = (deccoeff *)ocoeff;
+
+    if (!(sign == 0 || sign == 1)) {
+        PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
+        return NULL;
+    }
+
+    return (PyObject *)__Decimal_finite(sign, coeff, exp);
+}
+
+/* Create a qNaN; classmethod, but we currently aren't allowing _Decimal
+   to be subclassed, so cls should always be exactly deccoeff_DeccoeffType */
+
+static PyObject *
+_Decimal_qNaN(PyTypeObject *cls, PyObject *args) {
+    PyObject *opayload;
+    deccoeff *payload;
+    int sign;
+
+    assert (cls == &deccoeff__DecimalType);
+    if (!PyArg_ParseTuple(args, "iO:" "_Decimal", &sign, &opayload))
+        return NULL;
+    if (opayload->ob_type != &deccoeff_DeccoeffType) {
+        PyErr_SetString(PyExc_TypeError, "payload should have type Deccoeff");
+        return NULL;
+    }
+    payload = (deccoeff *)opayload;
+    if (!(sign == 0 || sign == 1)) {
+        PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
+        return NULL;
+    }
+    return (PyObject *)__Decimal_qnan(sign, payload);
+}
+
+/* Create an sNaN; classmethod, but we currently aren't allowing _Decimal
+   to be subclassed, so cls should always be exactly deccoeff_DeccoeffType */
+
+static PyObject *
+_Decimal_sNaN(PyTypeObject *cls, PyObject *args) {
+    PyObject *opayload;
+    deccoeff *payload;
+    int sign;
+
+    assert (cls == &deccoeff__DecimalType);
+    if (!PyArg_ParseTuple(args, "iO:" "_Decimal", &sign, &opayload))
+        return NULL;
+    if (opayload->ob_type != &deccoeff_DeccoeffType) {
+        PyErr_SetString(PyExc_TypeError, "payload should have type Deccoeff");
+        return NULL;
+    }
+    payload = (deccoeff *)opayload;
+    if (!(sign == 0 || sign == 1)) {
+        PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
+        return NULL;
+    }
+    return (PyObject *)__Decimal_snan(sign, payload);
+}
+
+/* Create an infinity; classmethod, but we currently aren't allowing _Decimal
+   to be subclassed, so cls should always be exactly deccoeff_DeccoeffType */
+
+static PyObject *
+_Decimal_inf(PyTypeObject *cls, PyObject *args) {
+    int sign;
+
+    assert (cls == &deccoeff__DecimalType);
+    if (!PyArg_ParseTuple(args, "i:" "_Decimal", &sign))
+        return NULL;
+    if (!(sign == 0 || sign == 1)) {
+        PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
+        return NULL;
+    }
+    return (PyObject *)__Decimal_inf(sign);
+}
+
+/* Return the sign of any _Decimal instance */
+
+static PyObject *
+_Decimal_getsign(_Decimal *self, void *closure)
+{
+    long sign;
+    sign = (long)(self->dec_flags) & DEC_FLAGS_NEG;
+    return PyLong_FromLong(sign);
+}
+
+/* Return the coefficient of a finite _Decimal */
+
+static PyObject *
+_Decimal_getcoeff(_Decimal *self, void *closure)
+{
+    if (self->dec_flags & DEC_FLAGS_SPECIAL) {
+        PyErr_SetString(PyExc_ValueError,
+                        "infinity or NaN has no coefficient");
+        return NULL;
+    }
+    Py_INCREF(self->dec_coeff);
+    return (PyObject *)self->dec_coeff;
+}
+
+/* Return the payload of a NaN */
+
+static PyObject *
+_Decimal_getpayload(_Decimal *self, void *closure)
+{
+    if (self->dec_flags & DEC_FLAGS_NAN) {
+        Py_INCREF(self->dec_coeff);
+        return (PyObject *)self->dec_coeff;
+    }
+    else {
+        PyErr_SetString(PyExc_ValueError,
+                        "argument is not a NaN");
+        return NULL;
+    }
+}
+
+/* Return the exponent of a finite _Decimal instance */
+
+static PyObject *
+_Decimal_getexp(_Decimal *self, void *closure)
+{
+    if (self->dec_flags & DEC_FLAGS_SPECIAL) {
+        PyErr_SetString(PyExc_ValueError,
+                        "infinity or NaN has no exponent");
+        return NULL;
+    }
+    return PyLong_FromLong(self->dec_exp);
+}
+
+/* Return True if the given Decimal is special (an infinity or NaN),
+   False otherwise. */
+
+static PyObject *
+_Decimal_getspecial(_Decimal *self, void *closure)
+{
+    if (self->dec_flags & DEC_FLAGS_SPECIAL)
+        return Py_True;
+    else
+        return Py_False;
+}
+
+static PyMethodDef _Decimal_methods[] = {
+    {"qNaN", (PyCFunction)_Decimal_qNaN, METH_VARARGS|METH_CLASS, " "},
+    {"sNaN", (PyCFunction)_Decimal_sNaN, METH_VARARGS|METH_CLASS, " "},
+    {"inf", (PyCFunction)_Decimal_inf, METH_VARARGS|METH_CLASS, " "},
+    {NULL, NULL}
+};
+
+static PyGetSetDef _Decimal_getsetters[] = {
+    {"_sign", (getter)_Decimal_getsign, NULL, "sign", NULL},
+    {"_int", (getter)_Decimal_getcoeff, NULL,
+     "coefficient of a non-infinite _Decimal", NULL},
+    {"_exp", (getter)_Decimal_getexp, NULL,
+     "exponent of a finite _Decimal", NULL},
+    {"_payload", (getter)_Decimal_getpayload, NULL,
+     "payload of a NaN", NULL},
+    {"_is_special", (getter)_Decimal_getspecial, NULL,
+     "True for infinities and NaNs, false otherwise", NULL},
+    {NULL}
+};
+
+static PyTypeObject deccoeff__DecimalType = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    MODULE_NAME "." "_Decimal",             /* tp_name */
+    sizeof(_Decimal),                       /* tp_basicsize */
+    0,                          /* tp_itemsize */
+    _Decimal_dealloc,                       /* tp_dealloc */
+    0, /* tp_print */
+    0, /* tp_getattr */
+    0, /* tp_setattr */
+    0, /* tp_compare */
+    0,                /* tp_repr */
+    0,                    /* tp_as_number */
+    0, /* tp_as_sequence */
+    0,                   /* tp_as_mapping */
+    0,                /* tp_hash */
+    0, /* tp_call */
+    0,                 /* tp_str */
+    0, /* tp_getattro */
+    0, /* tp_setattro */
+    0, /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,                     /* tp_flags */
+    "support for Decimal type",                     /* tp_doc */
+    0, /* tp_traverse */
+    0, /* tp_clear */
+    0,      /* tp_richcompare */
+    0, /* tp_weaklistoffset */
+    0, /* tp_iter */
+    0, /* tp_iternext */
+    _Decimal_methods,                       /* tp_methods */
+    0, /* tp_members */
+    _Decimal_getsetters, /* tp_getset */
+    0, /* tp_base */
+    0, /* tp_dict */
+    0, /* tp_descr_get */
+    0, /* tp_descr_set */
+    0, /* tp_dictoffset */
+    0, /* tp_init */
+    0, /* tp_alloc */
+    _Decimal_new,                           /* tp_new */
+    PyObject_Del,                           /* tp_free */
+};
+
 static PyMethodDef deccoeff_module_methods[] = {
     {NULL, NULL}
 };
@@ -2362,6 +2710,9 @@ PyInit_deccoeff(void)
     if (PyType_Ready(&deccoeff_DeccoeffType) < 0)
         return NULL;
 
+    if (PyType_Ready(&deccoeff__DecimalType) < 0)
+        return NULL;
+
     m = PyModule_Create(&deccoeff_module);
     if (m == NULL)
         return NULL;
@@ -2369,6 +2720,12 @@ PyInit_deccoeff(void)
     Py_INCREF(&deccoeff_DeccoeffType);
     check = PyModule_AddObject(m, CLASS_NAME,
                                (PyObject *) &deccoeff_DeccoeffType);
+    if (check == -1)
+        return NULL;
+
+    Py_INCREF(&deccoeff__DecimalType);
+    check = PyModule_AddObject(m, "_Decimal",
+                               (PyObject *) &deccoeff__DecimalType);
     if (check == -1)
         return NULL;
     check = PyModule_AddIntMacro(m, LIMB_DIGITS);
