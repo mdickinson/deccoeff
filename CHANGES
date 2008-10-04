@@ -1,6 +1,8 @@
 Changes since version 0.2
 -------------------------
 
+Add skeleton _Decimal class, to serve as base for Decimal
+
 Make hash produce 64-bit values for 64-bit builds.
 
 Convert source code to 4-space indent, no tabs
