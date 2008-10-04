@@ -733,7 +733,7 @@ limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
 
 static limb_t
 limbs_div1(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-	   limb_t high, limb_t x)
+           limb_t high, limb_t x)
 {
     Py_ssize_t i;
     for (i = a_size-1; i >= 0; i--)
@@ -747,7 +747,7 @@ limbs_div1(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 
 static void
 limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
-	  const limb_t *b, Py_ssize_t b_size, limb_t *w)
+          const limb_t *b, Py_ssize_t b_size, limb_t *w)
 {
     limb_t scale, top, a_top, b_top, q, dummy;
     limb_t *aa, *bb;
@@ -864,13 +864,13 @@ limbs_slice(limb_t *res, const limb_t *a, Py_ssize_t m, Py_ssize_t n)
     diff = (mdigits + resdigits - LIMB_DIGITS);
     if (diff < 0) {
         limbs_div1(res, a + mlimbs, reslimbs + 1,
-		   LIMB_ZERO, powers_of_ten[mdigits]);
+                   LIMB_ZERO, powers_of_ten[mdigits]);
         res[reslimbs] = limb_mask(res[reslimbs], resdigits+1);
     }
     else {
         high = limb_mask(a[mlimbs + reslimbs + 1], diff+1);
         limbs_div1(res, a + mlimbs, reslimbs + 1,
-		   high, powers_of_ten[mdigits]);
+                   high, powers_of_ten[mdigits]);
     }
 }
 
@@ -1110,9 +1110,8 @@ limbs_printf(const char *name, const limb_t *a, Py_ssize_t a_size)
 
 static void
 limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-		   const limb_t *b, Py_ssize_t b_size,
-		   limb_t *w, Py_ssize_t w_size);
-
+                   const limb_t *b, Py_ssize_t b_size,
+                   limb_t *w, Py_ssize_t w_size);
 
 /* Karatsuba multiplication.  On input, k is an integer satisfying k < a_size
    <= 2*k and k < b_size <= 2*k.  w provides workspace of size w_size.  The
@@ -1168,8 +1167,8 @@ limbs_kmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 
 static void
 limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-		   const limb_t *b, Py_ssize_t b_size,
-		   limb_t *w, Py_ssize_t w_size)
+                   const limb_t *b, Py_ssize_t b_size,
+                   limb_t *w, Py_ssize_t w_size)
 {
     Py_ssize_t k;
     bool carry;
@@ -1413,28 +1412,28 @@ convert_to_deccoeff(PyObject *v)
     }
 }
 
-#define DECCOEFF_WRAP_BINOP(PO_func, DC_func)			\
-    static PyObject *						\
-    PO_func(PyObject *v, PyObject *w)				\
-    {								\
-	deccoeff *a, *b;					\
-	PyObject *z = NULL;					\
-	if (!compatible_with_deccoeff(v)) {			\
-            Py_INCREF(Py_NotImplemented);			\
-            z = Py_NotImplemented;				\
-	}							\
-	else if ((a = convert_to_deccoeff(v)) != NULL) {	\
+#define DECCOEFF_WRAP_BINOP(PO_func, DC_func)                        \
+    static PyObject *                                                \
+    PO_func(PyObject *v, PyObject *w)                                \
+    {                                                                \
+        deccoeff *a, *b;                                        \
+        PyObject *z = NULL;                                        \
+        if (!compatible_with_deccoeff(v)) {                        \
+            Py_INCREF(Py_NotImplemented);                        \
+            z = Py_NotImplemented;                                \
+        }                                                        \
+        else if ((a = convert_to_deccoeff(v)) != NULL) {        \
             if (!compatible_with_deccoeff(w)) {                 \
                 Py_INCREF(Py_NotImplemented);                   \
                 z = Py_NotImplemented;                          \
             }                                                   \
-            else if ((b = convert_to_deccoeff(w)) != NULL) {	\
+            else if ((b = convert_to_deccoeff(w)) != NULL) {        \
                 z = (PyObject *)(DC_func(a, b));                \
                 Py_DECREF(b);                                   \
             }                                                   \
-            Py_DECREF(a);					\
-	}							\
-	return z;						\
+            Py_DECREF(a);                                        \
+        }                                                        \
+        return z;                                                \
     }
 
 /* addition */
