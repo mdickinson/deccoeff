@@ -136,6 +136,7 @@ __all__ = [
 
 from deccoeff import Deccoeff
 
+import numbers as _numbers
 import copy as _copy
 
 try:
@@ -549,7 +550,7 @@ def _count_zeros(x):
 
 ##### Decimal class #######################################################
 
-class Decimal(object):
+class Decimal(_numbers.Real):
     """Floating point class for decimal arithmetic."""
 
     __slots__ = ('_exp','_int','_sign', '_is_special')
