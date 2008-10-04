@@ -2201,12 +2201,19 @@ deccoeff_dealloc(PyObject *v)
     Py_TYPE(v)->tp_free(v);
 }
 
-/* XXX fix this to give a 64-bit hash on 64-bit systems */
-
-#define HASH_SHIFT 13
-#define HASH_MASK ((1<<HASH_SHIFT) - 1)
-#define HASH_START 1887730231
+#if SIZEOF_LONG == 4
 #define HASH_BITS 32
+#define HASH_SHIFT 13
+#define HASH_MASK ((1UL<<HASH_SHIFT) - 1)
+#define HASH_START 1887730231UL
+#elif SIZEOF_LONG == 8
+#define HASH_BITS 64
+#define HASH_SHIFT 25
+#define HASH_MASK ((1UL<<HASH_SHIFT) - 1)
+#define HASH_START 16569463434574008864UL
+#else
+#error "Expect sizeof(long) to be 4 or 8"
+#endif
 
 static long
 deccoeff_hash(deccoeff *v)
