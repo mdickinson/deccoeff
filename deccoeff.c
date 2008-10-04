@@ -728,27 +728,6 @@ limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
     return high;
 }
 
-/* multiply a by b, getting (a_size + b_size)-limb result res; superseded by
-   limbs_mul.  We don't use this any more; it's kept around for debugging
-   purposes. */
-
-static void
-limbs_mul_naive(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-                const limb_t *b, Py_ssize_t b_size)
-{
-    Py_ssize_t i, j;
-    limb_t hiword;
-    for (j=0; j < b_size; j++)
-        res[j] = LIMB_ZERO;
-    for (i=0; i < a_size; i++) {
-        hiword = LIMB_ZERO;
-        for (j=0; j < b_size; j++)
-            hiword = limb_fmaa(res+i+j, a[i], b[j],
-                               res[i+j], hiword);
-        res[i+j] = hiword;
-    }
-}
-
 /* divide a_size-limb number a by single limb x, giving a_size-limb quotient
    res and returning the (single limb) remainder */
 
@@ -1124,6 +1103,8 @@ limbs_printf(const char *name, const limb_t *a, Py_ssize_t a_size)
    In all cases, 4l-2 limbs are enough.
 */
 
+#define KARATSUBA_CUTOFF 72
+
 /* limbs_kmul and limbs_mul_dispatch call each other recursively,
    so we need a forward declaration */
 
@@ -1134,7 +1115,9 @@ limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 
 
 /* Karatsuba multiplication.  On input, k is an integer satisfying k < a_size
-   <= 2*k and k < b_size <= 2*k.  w provides workspace of size w_size. */
+   <= 2*k and k < b_size <= 2*k.  w provides workspace of size w_size.  The
+   amount of workspace required is 2k + max(1, W), where W is the workspace
+   required by the recursive calls.*/
 
 static void
 limbs_kmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
@@ -1183,8 +1166,6 @@ limbs_kmul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
    dispatch to the appropriate function to do the computation.
    Assumes that 1 <= a_size <= b_size on input. */
 
-#define KARATSUBA_CUTOFF 128
-
 static void
 limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 		   const limb_t *b, Py_ssize_t b_size,
@@ -1194,13 +1175,15 @@ limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
     bool carry;
     assert(1 <= a_size && a_size <= b_size);
 
-    if (a_size < KARATSUBA_CUTOFF) {
+    if (a_size <= KARATSUBA_CUTOFF) {
         /* basecase multiplication */
         limbs_mul(res, a, a_size, b, b_size);
         return;
     }
-    /* find k, the smallest power of 2 not less than a_size */
-    k = 2;
+
+    /* find k, the smallest number of the form 2**i * KARATSUBA_CUTOFF
+       such that a_size <= k. */
+    k = KARATSUBA_CUTOFF;
     while (k < a_size)
         k *= 2;
     assert(k/2 < a_size && a_size <= k);
