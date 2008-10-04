@@ -1,6 +1,15 @@
 Changes since version 0.2
 -------------------------
 
+Make hash produce 64-bit values for 64-bit builds.
+
+Convert source code to 4-space indent, no tabs
+
+Use faster algorithm for basecase multiplication, minimizing the
+number of divisions.
+
+Add Karatsuba multiplication.
+
 Add some profiling code for multiplication.
 
 Add code to use 64-bit limbs (with 18 digits to a limb), if an
