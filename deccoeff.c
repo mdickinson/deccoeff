@@ -1,8 +1,22 @@
 /* To do: add LIMB_DIGITS = 8 option, and make it possible to
    configure LIMB_DIGITS using the configure script.
-   Reformat C code in py3k style. (4-space indents, no tabs)
 
-   Consider whether alignment is slowing down 64-bit limb type.
+   docstrings!
+
+   Use CLASS_NAME where appropriate in strings
+
+   Add _Decimal type...
+
+   Fill powers of ten table dynamically
+
+   Make code less dependent on LIMB_DIGITS: should just need two
+   continued fraction approximations (upper and lower) to
+   log(2**15)/log(10); scale as appropriate.
+
+   Add check that MAX_DIGITS/LIMB_DIGITS is small enough:  twice it
+   should fit into a Py_ssize_t.  Also, relax current value of
+   MAX_DIGITS for 64-bit systems.
+
    Put multiplication count in karatsuba algorithm, to check theory.
 
    If Py_DEBUG is defined, initialize newly allocated limbs to random stuff.
@@ -24,11 +38,13 @@
  *  -----
  *  expand Deccoeff-specific tests
  *  improve and correct documentation; remove outdated deccoeff.txt; ReST!
- *  fast recursive algorithms for multiplication, division, base conversion
+ *  fast recursive algorithms for division, base conversion
  *  (fast recursive) square root
  *  fix tp_basicsize and tp_itemsize calculations
  *
  *  minor optimization opportunities:
+ *  - in Karatsuba, accumulate all additions for middle term without
+ *    propagating carry
  *  - make limb_error checks only for debug build
  *  - limbs_lshift and limbs_rshift could be faster when the shift count
  *    is a multiple of LIMB_DIGITS.
