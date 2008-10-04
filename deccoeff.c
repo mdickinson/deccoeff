@@ -371,51 +371,76 @@ limb_msd(limb_t x) {
 #error "unrecognised value for LIMB_DIGITS"
 #endif
 
-/* basecase multiplication, when a_size <= b_size, a_size <= MAX_PARTIALS.
-   Compute a*b and add into the current contents of res. */
+/* res[0:a_size+b_size] := a*b, assuming b_size <= MIN(MAX_PARTIALS,
+   a_size) */
 
 static void
-limbs_mul_block(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+limbs_multiply_init(limb_t *res, const limb_t *a, Py_ssize_t a_size,
                 const limb_t *b, Py_ssize_t b_size)
 {
-    Py_ssize_t i, j, k;
-    double_limb_t acc;
-    bool carry;
-
-    assert(b_size <= a_size);
-    assert(b_size <= MAX_PARTIALS);
-
-    acc = 0;
-    carry = false;
-    k = 0;
-    for (k=0; k < b_size; k++) {
-        for (i=k, j=0; i >= 0 ; i--, j++)
-            acc += (double_limb_t)(a[i])*b[j];
-        carry = limb_adc(res+k, res[k], acc % LIMB_BASE, carry);
+    double_limb_t acc = 0;
+    Py_ssize_t j, k;
+    assert(b_size <= MAX_PARTIALS && b_size <= a_size);
+    for (k=0; k<b_size; k++) {
+        for (j=0; j<=k; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = acc % LIMB_BASE;
         acc /= LIMB_BASE;
     }
     for (; k < a_size; k++) {
-        for (i=k, j=0; j < b_size; i--, j++)
-            acc += (double_limb_t)(a[i])*b[j];
-        carry = limb_adc(res+k, res[k], acc % LIMB_BASE, carry);
+        for (j=0; j<b_size; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = acc % LIMB_BASE;
         acc /= LIMB_BASE;
     }
-    for (; k < a_size + b_size; k++) {
-        for (i=a_size-1, j=k-i; j < b_size; i--, j++)
-            acc += (double_limb_t)(a[i])*b[j];
-        carry = limb_adc(res+k, res[k], acc % LIMB_BASE, carry);
+    for (k=0; k<b_size; k++) {
+        for (j=k+1; j < b_size; j++)
+            acc += (double_limb_t)a[k+a_size-j]*b[j];
+        res[k+a_size] = acc % LIMB_BASE;
         acc /= LIMB_BASE;
     }
     assert(acc == 0);
-    assert(!carry);
 }
+
+/* res[0:a_size+b_size] := a*b + res[0:a_size], assuming b_size <=
+   MIN(MAX_PARTIALS, a_size) */
+
+static void
+limbs_multiply_add(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+                const limb_t *b, Py_ssize_t b_size)
+{
+    double_limb_t acc = 0;
+    Py_ssize_t j, k;
+    assert(b_size <= MAX_PARTIALS && b_size <= a_size);
+    for (k=0; k<b_size; k++) {
+        acc += res[k];
+        for (j=0; j<=k; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = acc % LIMB_BASE;
+        acc /= LIMB_BASE;
+    }
+    for (; k < a_size; k++) {
+        acc += res[k];
+        for (j=0; j<b_size; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = acc % LIMB_BASE;
+        acc /= LIMB_BASE;
+    }
+    for (k=0; k<b_size; k++) {
+        for (j=k+1; j < b_size; j++)
+            acc += (double_limb_t)a[k+a_size-j]*b[j];
+        res[k+a_size] = acc % LIMB_BASE;
+        acc /= LIMB_BASE;
+    }
+    assert(acc == 0);
+}
+
+/* res[0:a_size+b_size] := a * b */
 
 static void
 limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-          const limb_t *b, Py_ssize_t b_size)
+                const limb_t *b, Py_ssize_t b_size)
 {
-    Py_ssize_t k;
-
     /* reduce to case where a_size >= b_size */
     if (a_size < b_size) {
         const limb_t *temp;
@@ -424,16 +449,22 @@ limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
         temp_size = a_size; a_size = b_size; b_size = temp_size;
     }
 
-    for (k = 0; k < a_size + b_size; k++)
-        res[k] = LIMB_ZERO;
-
-    while(b_size >= MAX_PARTIALS) {
-        limbs_mul_block(res, a, a_size, b, MAX_PARTIALS);
+    assert(b_size <= a_size);
+    if (b_size < MAX_PARTIALS)
+        limbs_multiply_init(res, a, a_size, b, b_size);
+    else {
+        limbs_multiply_init(res, a, a_size, b, MAX_PARTIALS);
         b_size -= MAX_PARTIALS;
         b += MAX_PARTIALS;
         res += MAX_PARTIALS;
+        while (b_size >= MAX_PARTIALS) {
+            limbs_multiply_add(res, a, a_size, b, MAX_PARTIALS);
+            b_size -= MAX_PARTIALS;
+            b += MAX_PARTIALS;
+            res += MAX_PARTIALS;
+        }
+        limbs_multiply_add(res, a, a_size, b, b_size);
     }
-    limbs_mul_block(res, a, a_size, b, b_size);
 }
 
 #undef LIMB_BASE
@@ -470,7 +501,6 @@ limb_eq(limb_t a, limb_t b)
     limb_sbb(&diff, a, b, false);
     return !limb_bool(diff);
 }
-
 
 /* a < b iff a - b overflows */
 
