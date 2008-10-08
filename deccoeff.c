@@ -4,6 +4,7 @@
    docstrings!
 
    Use CLASS_NAME where appropriate in strings
+   Add macro for _Decimal class name
 
    Add _Decimal type...
 
