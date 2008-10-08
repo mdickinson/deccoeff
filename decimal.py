@@ -49,8 +49,6 @@ Decimal('1')
 Decimal('-0.0123')
 >>> Decimal(123456)
 Decimal('123456')
->>> Decimal('123.45e12345678901234567890')
-Decimal('1.2345E+12345678901234567892')
 >>> Decimal('1.33') + Decimal('1.27')
 Decimal('2.60')
 >>> Decimal('12.34') + Decimal('3.87') - Decimal('18.41')
@@ -134,7 +132,7 @@ __all__ = [
     'setcontext', 'getcontext', 'localcontext'
 ]
 
-from deccoeff import Deccoeff
+from deccoeff import Deccoeff, _Decimal
 
 import numbers as _numbers
 import copy as _copy
@@ -217,7 +215,7 @@ class InvalidOperation(DecimalException):
     """
     def handle(self, context, *args):
         if args:
-            ans = _dec_from_triple(args[0]._sign, args[0]._int, 'n', True)
+            ans = Decimal._qnan(args[0]._sign, args[0]._payload)
             return ans._fix_nan(context)
         return NaN
 
@@ -550,10 +548,9 @@ def _count_zeros(x):
 
 ##### Decimal class #######################################################
 
-class Decimal(_numbers.Real):
+class Decimal(_numbers.Real, _Decimal):
     """Floating point class for decimal arithmetic."""
 
-    __slots__ = ('_exp','_int','_sign', '_is_special')
     # Generally, the value of the Decimal instance is given by
     #  (-1)**_sign * _int * 10**_exp
     # Special values are signified by _is_special == True
@@ -574,8 +571,6 @@ class Decimal(_numbers.Real):
         Decimal('3.14')
         """
 
-        self = object.__new__(cls)
-
         # From a string
         # REs insist on real strings, so we can too.
         if isinstance(value, str):
@@ -587,55 +582,53 @@ class Decimal(_numbers.Real):
                                    "Invalid literal for Decimal: %r" % value)
 
             if m.group('sign') == "-":
-                self._sign = 1
+                _sign = 1
             else:
-                self._sign = 0
+                _sign = 0
             intpart = m.group('int')
             if intpart is not None:
-                # finite number
                 fracpart = m.group('frac')
                 exp = int(m.group('exp') or '0')
                 if fracpart is not None:
-                    self._int = Deccoeff(intpart+fracpart)
-                    self._exp = exp - len(fracpart)
+                    _int = Deccoeff(intpart+fracpart)
+                    _exp = exp - len(fracpart)
                 else:
-                    self._int = Deccoeff(intpart)
-                    self._exp = exp
-                self._is_special = False
+                    _int = Deccoeff(intpart)
+                    _exp = exp
+                return Decimal._finite(_sign, _int, _exp)
             else:
                 diag = m.group('diag')
                 if diag is not None:
-                    # NaN
-                    self._int = Deccoeff(diag)
+                    _payload = Deccoeff(diag)
                     if m.group('signal'):
-                        self._exp = 'N'
+                        return Decimal._snan(_sign, _payload)
                     else:
-                        self._exp = 'n'
+                        return Decimal._qnan(_sign, _payload)
                 else:
-                    # infinity
-                    self._int = deccoeff_zero
-                    self._exp = 'F'
-                self._is_special = True
-            return self
+                    return Decimal._inf(_sign)
 
         # From another decimal
-        if isinstance(value, Decimal):
-            self._sign = value._sign
-            self._int  = value._int
-            self._exp  = value._exp
-            self._is_special  = value._is_special
-            return self
+        if isinstance(value, _Decimal):
+            if value._is_special:
+                if value.is_infinite():
+                    return Decimal._inf(value._sign)
+                elif value.is_qnan():
+                    return Decimal._qnan(value._sign, value._payload)
+                elif value.is_snan():
+                    return Decimal._snan(value._sign, value._payload)
+                else:
+                    assert False, "never get here"
+            else:
+                return Decimal._finite(value._sign, value._int, value._exp)
 
         # From an integer
         if isinstance(value, int):
             if value >= 0:
-                self._sign = 0
+                _sign = 0
             else:
-                self._sign = 1
-            self._int = Deccoeff(abs(value))
-            self._exp = 0
-            self._is_special = False
-            return self
+                _sign = 1
+            _int = Deccoeff(abs(value))
+            return Decimal._finite(_sign, _int, 0)
 
         # tuple/list conversion (possibly from as_tuple())
         if isinstance(value, (list,tuple)):
@@ -648,12 +641,10 @@ class Decimal(_numbers.Real):
                 raise ValueError("Invalid sign.  The first value in the tuple "
                                  "should be an integer; either 0 for a "
                                  "positive number or 1 for a negative number.")
-            self._sign = value[0]
+            _sign = value[0]
             if value[2] == 'F':
                 # infinity: value[1] is ignored
-                self._int = deccoeff_zero
-                self._exp = value[2]
-                self._is_special = True
+                return Decimal._inf(_sign)
             else:
                 # process and validate the digits in value[1]
                 digits = []
@@ -664,20 +655,17 @@ class Decimal(_numbers.Real):
                         raise ValueError("The second value in the tuple must "
                                          "be composed of integers in the range "
                                          "0 through 9.")
-                self._int = Deccoeff(''.join(digits))
-                if value[2] in ('n', 'N'):
-                    # NaN: digits form the diagnostic
-                    self._exp = value[2]
-                    self._is_special = True
+                _int = Deccoeff(''.join(digits))
+                if value[2] == 'n':
+                    return Decimal._qnan(_sign, _int)
+                elif value[2] == 'N':
+                    return Decimal._snan(_sign, _int)
                 elif isinstance(value[2], int):
-                    # finite number: digits give the coefficient
-                    self._exp = value[2]
-                    self._is_special = False
+                    return Decimal._finite(_sign, _int, value[2])
                 else:
                     raise ValueError("The third value in the tuple must "
                                      "be an integer, or one of the "
                                      "strings 'F', 'n', 'N'.")
-            return self
 
         if isinstance(value, float):
             raise TypeError("Cannot convert float to Decimal.  " +
@@ -692,12 +680,10 @@ class Decimal(_numbers.Real):
         1 if NaN
         2 if sNaN
         """
-        if self._is_special:
-            exp = self._exp
-            if exp == 'n':
-                return 1
-            elif exp == 'N':
-                return 2
+        if self.is_qnan():
+            return 1
+        elif self.is_snan():
+            return 2
         return 0
 
     def _isinfinity(self):
@@ -707,10 +693,11 @@ class Decimal(_numbers.Real):
         1 if +INF
         -1 if -INF
         """
-        if self._exp == 'F':
-            if self._sign:
+        if self.is_infinite():
+            if self.is_signed():
                 return -1
-            return 1
+            else:
+                return 1
         return 0
 
     def _check_nans(self, other=None, context=None):
@@ -955,19 +942,27 @@ class Decimal(_numbers.Real):
         # backwards compatibility requires some effort here
 
         if self._is_special:
-            if self._exp == 'F':
+            if self.is_infinite():
                 coeff = (0,)
+                exp = 'F'
             else: # NaN
-                if self._int:
-                    coeff = tuple(int(x) for x in str(self._int))
+                if self._payload:
+                    coeff = tuple(int(x) for x in str(self._payload))
                 else:
                     coeff = ()
+                if self.is_qnan():
+                    exp = 'n'
+                else:
+                    exp = 'N'
+
         elif not self:
             coeff = (0,)
+            exp = self._exp
         else:
             coeff = tuple(int(x) for x in str(self._int))
+            exp = self._exp
 
-        return DecimalTuple(self._sign, coeff, self._exp)
+        return DecimalTuple(self._sign, coeff, exp)
 
     def __repr__(self):
         """Represents the number as an instance of Decimal."""
@@ -982,18 +977,18 @@ class Decimal(_numbers.Real):
 
         sign = ['', '-'][self._sign]
         if self._is_special:
-            if self._exp == 'F':
+            if self.is_infinite():
                 return sign + 'Infinity'
-            elif self._exp == 'n':
-                if not self._int:
+            elif self.is_qnan():
+                if not self._payload:
                     return sign + 'NaN'
                 else:
-                    return sign + 'NaN' + str(self._int)
-            else: # self._exp == 'N'
-                if not self._int:
+                    return sign + 'NaN' + str(self._payload)
+            else: # self.is_snan()
+                if not self._payload:
                     return sign + 'sNaN'
                 else:
-                    return sign + 'sNaN' + str(self._int)
+                    return sign + 'sNaN' + str(self._payload)
 
         # deal independently with case of 0
         if self._int:
@@ -1582,7 +1577,9 @@ class Decimal(_numbers.Real):
 
     def _fix_nan(self, context):
         """Decapitate the payload of a NaN to fit the context"""
-        payload = self._int
+        assert self.is_nan()
+
+        payload = self._payload
 
         # maximum length of payload is precision if _clamp=0,
         # precision-1 if _clamp=1.
@@ -1590,7 +1587,11 @@ class Decimal(_numbers.Real):
         if payload and len(payload) > max_payload_len:
             # if payload is too long, take *low order* digits
             payload = payload[:max_payload_len]
-            return _dec_from_triple(self._sign, payload, self._exp, True)
+            if self.is_qnan():
+                return Decimal._qnan(self._sign, payload)
+            else:
+                return Decimal._snan(self._sign, payload)
+
         return Decimal(self)
 
     def _fix(self, context, rounding=None):
@@ -1841,20 +1842,20 @@ class Decimal(_numbers.Real):
         if self._is_special or other._is_special:
             if context is None:
                 context = getcontext()
-            if self._exp == 'N':
+            if self.is_snan():
                 return context._raise_error(InvalidOperation, 'sNaN', self)
-            if other._exp == 'N':
+            if other.is_snan():
                 return context._raise_error(InvalidOperation, 'sNaN', other)
-            if self._exp == 'n':
+            if self.is_qnan():
                 product = self
-            elif other._exp == 'n':
+            elif other.is_qnan():
                 product = other
-            elif self._exp == 'F':
+            elif self.is_infinite():
                 if not other:
                     return context._raise_error(InvalidOperation,
                                                 'INF * 0 in fma')
                 product = Infsign[self._sign ^ other._sign]
-            elif other._exp == 'F':
+            elif other.is_infinite():
                 if not self:
                     return context._raise_error(InvalidOperation,
                                                 '0 * INF in fma')
@@ -2635,39 +2636,22 @@ class Decimal(_numbers.Real):
         NaN (and signals if one is sNaN).  Also rounds.
         """
         other = _convert_other(other, raiseit=True)
-
         if context is None:
             context = getcontext()
 
-        if self._is_special or other._is_special:
-            # If one operand is a quiet NaN and the other is number, then the
-            # number is always returned
-            sn = self._isnan()
-            on = other._isnan()
-            if sn or on:
-                if on == 1 and sn != 2:
-                    return self._fix_nan(context)
-                if sn == 1 and on != 2:
-                    return other._fix_nan(context)
+        # Special case: max(qNaN, number) = number
+        if self.is_nan() or other.is_nan():
+            if self.is_qnan() and not other.is_nan():
+                return other._fix(context)
+            elif other.is_qnan() and not self.is_nan():
+                return self._fix(context)
+            else:
                 return self._check_nans(other, context)
 
-        c = self._cmp(other)
-        if c == 0:
-            # If both operands are finite and equal in numerical value
-            # then an ordering is applied:
-            #
-            # If the signs differ then max returns the operand with the
-            # positive sign and min returns the operand with the negative sign
-            #
-            # If the signs are the same then the exponent is used to select
-            # the result.  This is exactly the ordering used in compare_total.
-            c = self.compare_total(other)
-
-        if c == -1:
+        if self._cmp_total(other) == -1:
             ans = other
         else:
             ans = self
-
         return ans._fix(context)
 
     def min(self, other, context=None):
@@ -2677,31 +2661,22 @@ class Decimal(_numbers.Real):
         NaN (and signals if one is sNaN).  Also rounds.
         """
         other = _convert_other(other, raiseit=True)
-
         if context is None:
             context = getcontext()
 
-        if self._is_special or other._is_special:
-            # If one operand is a quiet NaN and the other is number, then the
-            # number is always returned
-            sn = self._isnan()
-            on = other._isnan()
-            if sn or on:
-                if on == 1 and sn != 2:
-                    return self._fix_nan(context)
-                if sn == 1 and on != 2:
-                    return other._fix_nan(context)
+        # Special case: min(qNaN, number) = number
+        if self.is_nan() or other.is_nan():
+            if self.is_qnan() and not other.is_nan():
+                return other._fix(context)
+            elif other.is_qnan() and not self.is_nan():
+                return self._fix(context)
+            else:
                 return self._check_nans(other, context)
 
-        c = self._cmp(other)
-        if c == 0:
-            c = self.compare_total(other)
-
-        if c == -1:
+        if self._cmp_total(other) == -1:
             ans = self
         else:
             ans = other
-
         return ans._fix(context)
 
     def _isinteger(self):
@@ -2753,6 +2728,60 @@ class Decimal(_numbers.Real):
             return ans
         return self.compare(other, context=context)
 
+    def _cmp_total(self, other):
+        """Internal version of compare_total, returning integer instead of
+        Decimal."""
+
+        # compare signs; if both values are -ve, reverse and compare
+        # as though +ve
+        if self._sign != other._sign:
+            return [1, -1][self._sign]
+        elif self._sign:
+            self, other = other.copy_negate(), self.copy_negate()
+
+        # classify types: finite < Inf < sNaN < qNaN
+        if not self._is_special:
+            self_type = 0
+        elif self.is_infinite():
+            self_type = 1
+        elif self.is_snan():
+            self_type = 2
+        else: #self.is_qnan():
+            self_type = 3
+
+        if not other._is_special:
+            other_type = 0
+        elif other.is_infinite():
+            other_type = 1
+        elif other.is_snan():
+            other_type = 2
+        else: #other.is_qnan():
+            other_type = 3
+
+        if self_type != other_type:
+            if self_type < other_type:
+                return -1
+            else:
+                return 1
+
+        if self_type == 0:
+            # finite values: compare values, then exponents
+            if self != other:
+                return [1, -1][self < other]
+            elif self._exp != other._exp:
+                return [1, -1][self._exp < other._exp]
+            else:
+                return 0
+        elif self_type == 1:
+            # infinities of the same sign are always equal
+            return 0
+        else: #self_type in (2, 3):
+            # nans are ordered by payload
+            if self._payload != other._payload:
+                return [1, -1][self._payload < other._payload]
+            else:
+                return 0
+
     def compare_total(self, other):
         """Compares self to other using the abstract representations.
 
@@ -2760,66 +2789,7 @@ class Decimal(_numbers.Real):
         value. Note that a total ordering is defined for all possible abstract
         representations.
         """
-        # if one is negative and the other is positive, it's easy
-        if self._sign and not other._sign:
-            return Dec_n1
-        if not self._sign and other._sign:
-            return Dec_p1
-        sign = self._sign
-
-        # let's handle both NaN types
-        self_nan = self._isnan()
-        other_nan = other._isnan()
-        if self_nan or other_nan:
-            if self_nan == other_nan:
-                if self._int < other._int:
-                    if sign:
-                        return Dec_p1
-                    else:
-                        return Dec_n1
-                if self._int > other._int:
-                    if sign:
-                        return Dec_n1
-                    else:
-                        return Dec_p1
-                return Dec_0
-
-            if sign:
-                if self_nan == 1:
-                    return Dec_n1
-                if other_nan == 1:
-                    return Dec_p1
-                if self_nan == 2:
-                    return Dec_n1
-                if other_nan == 2:
-                    return Dec_p1
-            else:
-                if self_nan == 1:
-                    return Dec_p1
-                if other_nan == 1:
-                    return Dec_n1
-                if self_nan == 2:
-                    return Dec_p1
-                if other_nan == 2:
-                    return Dec_n1
-
-        if self < other:
-            return Dec_n1
-        if self > other:
-            return Dec_p1
-
-        if self._exp < other._exp:
-            if sign:
-                return Dec_p1
-            else:
-                return Dec_n1
-        if self._exp > other._exp:
-            if sign:
-                return Dec_n1
-            else:
-                return Dec_p1
-        return Dec_0
-
+        return [Dec_0, Dec_p1, Dec_n1][self._cmp_total(other)]
 
     def compare_total_mag(self, other):
         """Compares self to other using abstract repr., ignoring sign.
@@ -2830,21 +2800,24 @@ class Decimal(_numbers.Real):
         o = other.copy_abs()
         return s.compare_total(o)
 
+    def _copy(self):
+        """Return a copy of self."""
+        return Decimal(_Decimal.copy(self))
+
     def copy_abs(self):
         """Returns a copy with the sign set to 0. """
-        return _dec_from_triple(0, self._int, self._exp, self._is_special)
+        return Decimal(_Decimal.copy_abs(self))
 
     def copy_negate(self):
         """Returns a copy with the sign inverted."""
-        if self._sign:
-            return _dec_from_triple(0, self._int, self._exp, self._is_special)
-        else:
-            return _dec_from_triple(1, self._int, self._exp, self._is_special)
+        return Decimal(_Decimal.copy_negate(self))
 
     def copy_sign(self, other):
         """Returns self with the sign of other."""
-        return _dec_from_triple(other._sign, self._int,
-                                self._exp, self._is_special)
+        if other._sign == self._sign:
+            return self._copy()
+        else:
+            return self.copy_negate()
 
     def exp(self, context=None):
         """Returns e ** self."""
@@ -2929,22 +2902,6 @@ class Decimal(_numbers.Real):
         """
         return True
 
-    def is_finite(self):
-        """Return True if self is finite; otherwise return False.
-
-        A Decimal instance is considered finite if it is neither
-        infinite nor a NaN.
-        """
-        return not self._is_special
-
-    def is_infinite(self):
-        """Return True if self is infinite; otherwise return False."""
-        return self._exp == 'F'
-
-    def is_nan(self):
-        """Return True if self is a qNaN or sNaN; otherwise return False."""
-        return self._exp in ('n', 'N')
-
     def is_normal(self, context=None):
         """Return True if self is a normal number; otherwise return False."""
         if self._is_special or not self:
@@ -2952,18 +2909,6 @@ class Decimal(_numbers.Real):
         if context is None:
             context = getcontext()
         return context.Emin <= self.adjusted() <= context.Emax
-
-    def is_qnan(self):
-        """Return True if self is a quiet NaN; otherwise return False."""
-        return self._exp == 'n'
-
-    def is_signed(self):
-        """Return True if self is negative; otherwise return False."""
-        return self._sign == 1
-
-    def is_snan(self):
-        """Return True if self is a signaling NaN; otherwise return False."""
-        return self._exp == 'N'
 
     def is_subnormal(self, context=None):
         """Return True if self is subnormal; otherwise return False."""
@@ -3163,6 +3108,8 @@ class Decimal(_numbers.Real):
         return Decimal(self.adjusted())
 
     def _is_logical(self):
+        if self._is_special:
+            return False
         if not(self._sign == self._exp == 0):
             return False
         coeff = self._int
@@ -3217,38 +3164,30 @@ class Decimal(_numbers.Real):
             return context._raise_error(InvalidOperation)
         acc = deccoeff_zero
         for i in range(context.prec):
-            if self._int[i] and not other._int[i] or not self._int[i] and other._int[i]:
+            if (self._int[i] and not other._int[i] or
+                not self._int[i] and other._int[i]):
                 acc += deccoeff_one << i
         return _dec_from_triple(0, acc, 0);
 
     def max_mag(self, other, context=None):
         """Compares the values numerically with their sign ignored."""
         other = _convert_other(other, raiseit=True)
-
         if context is None:
             context = getcontext()
 
-        if self._is_special or other._is_special:
-            # If one operand is a quiet NaN and the other is number, then the
-            # number is always returned
-            sn = self._isnan()
-            on = other._isnan()
-            if sn or on:
-                if on == 1 and sn != 2:
-                    return self._fix_nan(context)
-                if sn == 1 and on != 2:
-                    return other._fix_nan(context)
+        if self.is_nan() or other.is_nan():
+            if self.is_qnan() and not other.is_nan():
+                return other._fix(context)
+            elif other.is_qnan() and not self.is_nan():
+                return self._fix(context)
+            else:
                 return self._check_nans(other, context)
 
-        c = self.copy_abs()._cmp(other.copy_abs())
-        if c == 0:
-            c = self.compare_total(other)
-
+        c = self.copy_abs()._cmp(other.copy_abs()) or self._cmp_total(other)
         if c == -1:
             ans = other
         else:
             ans = self
-
         return ans._fix(context)
 
     def min_mag(self, other, context=None):
@@ -3258,27 +3197,19 @@ class Decimal(_numbers.Real):
         if context is None:
             context = getcontext()
 
-        if self._is_special or other._is_special:
-            # If one operand is a quiet NaN and the other is number, then the
-            # number is always returned
-            sn = self._isnan()
-            on = other._isnan()
-            if sn or on:
-                if on == 1 and sn != 2:
-                    return self._fix_nan(context)
-                if sn == 1 and on != 2:
-                    return other._fix_nan(context)
+        if self.is_nan() or other.is_nan():
+            if self.is_qnan() and not other.is_nan():
+                return other._fix(context)
+            elif other.is_qnan() and not self.is_nan():
+                return self._fix(context)
+            else:
                 return self._check_nans(other, context)
 
-        c = self.copy_abs()._cmp(other.copy_abs())
-        if c == 0:
-            c = self.compare_total(other)
-
+        c = self.copy_abs()._cmp(other.copy_abs()) or self._cmp_total(other)
         if c == -1:
             ans = self
         else:
             ans = other
-
         return ans._fix(context)
 
     def _next_up(self, context):
@@ -3469,7 +3400,7 @@ class Decimal(_numbers.Real):
         if ans:
             return ans
 
-        if other._exp != 0:
+        if other._is_special or other._exp != 0:
             return context._raise_error(InvalidOperation)
 
         torot = int(other)
@@ -3495,7 +3426,7 @@ class Decimal(_numbers.Real):
         if ans:
             return ans
 
-        if other._exp != 0:
+        if other._is_special or other._exp != 0:
             return context._raise_error(InvalidOperation)
         liminf = -2 * (context.Emax + context.prec)
         limsup =  2 * (context.Emax + context.prec)
@@ -3518,7 +3449,7 @@ class Decimal(_numbers.Real):
         if ans:
             return ans
 
-        if other._exp != 0:
+        if other._is_special or other._exp != 0:
             return context._raise_error(InvalidOperation)
         toshift = int(other)
         if not (-context.prec <= toshift <= context.prec):
@@ -3650,14 +3581,8 @@ def _dec_from_triple(sign, coefficient, exponent, special=False):
     """
 
     assert type(coefficient) is Deccoeff
-
-    self = object.__new__(Decimal)
-    self._sign = sign
-    self._int = coefficient
-    self._exp = exponent
-    self._is_special = special
-
-    return self
+    assert not special
+    return Decimal._finite(sign, coefficient, exponent)
 
 ##### Context class #######################################################
 
@@ -3826,7 +3751,7 @@ class Context(object):
                                      "no trailing or leading whitespace is "
                                      "permitted.")
         d = Decimal(num, context=self)
-        if d._isnan() and d._int and len(d._int) > self.prec - self._clamp:
+        if d._isnan() and len(d._payload) > self.prec - self._clamp:
             return self._raise_error(ConversionSyntax,
                                      "diagnostic info too long in NaN")
         return d._fix(self)
