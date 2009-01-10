@@ -702,7 +702,8 @@ limbs_div1(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 
 /* divide a by b, giving an (a_size-b_size+1)-limb quotient and b_size-limb
    remainder.  Assumes that the top limb of b is nonzero and that a_size >=
-   b_size.  w provides a_size+b_size+1 limbs of workspace. */
+   b_size.  w provides a_size+b_size+1 limbs of workspace.  The algorithm is
+   standard: see Knuth, TAOCP, Volume 4. */
 
 static void
 limbs_div(limb_t *quot, limb_t *rem, const limb_t *a, Py_ssize_t a_size,
