@@ -1,13 +1,6 @@
 /*
-
-   Add check that MAX_DIGITS/LIMB_DIGITS is small enough:  twice it
-   should fit into a Py_ssize_t.
-
-*/
-
-/*
- * This file defines a module deccoeff containing two classes:
- * _Decimal and Deccoeff.
+ * This file defines a Python extension module 'deccoeff', containing two
+ * classes: _Decimal and Deccoeff.
  *
  * deccoeff._Decimal is a skeletal base class for the decimal.Decimal class.
  * As time goes on, the aim is to move more and more code from the Python
@@ -16,7 +9,7 @@
  *
  * deccoeff.Deccoeff is a class implementing arbitrary-precision unsigned
  * integer arithmetic in a decimal base.  In addition to the usual arithmetic
- * operations, Deccoeff instances support slicing and element access for
+ * operations, Deccoeff instances support slicing and element access, for
  * retrieving individual digits or sequences of digits.
  *
  * As the name suggests, Deccoeff instances are intended to be used as the

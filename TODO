@@ -8,6 +8,8 @@ docstrings!
 
 Deccoeff type
 -------------
+Add check that MAX_DIGITS/LIMB_DIGITS is small enough;  twice that
+ value should fit into a Py_ssize_t.
 relax MAX_DIGITS on 64-bit platforms
 make it possible to choose LIMB_DIGITS at configure time
 make LIMB_DIGITS=8 a possibility, for purposes of experimentation
