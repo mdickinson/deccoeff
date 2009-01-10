@@ -673,19 +673,18 @@ limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
 
 static void
 limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-	  const limb_t *b, Py_ssize_t b_size)
+          const limb_t *b, Py_ssize_t b_size)
 {
-	Py_ssize_t i, j;
-	limb_t hiword;
-	for (j=0; j < b_size; j++)
-		res[j] = LIMB_ZERO;
-	for (i=0; i < a_size; i++) {
-		hiword = LIMB_ZERO;
-		for (j=0; j < b_size; j++)
-			hiword = limb_fmaa(res+i+j, a[i], b[j],
-					   res[i+j], hiword);
-		res[i+j] = hiword;
-	}
+    Py_ssize_t i, j;
+    limb_t hiword;
+    for (j=0; j < b_size; j++)
+        res[j] = LIMB_ZERO;
+    for (i=0; i < a_size; i++) {
+        hiword = LIMB_ZERO;
+        for (j=0; j < b_size; j++)
+            hiword = limb_fmaa(res+i+j, a[i], b[j], res[i+j], hiword);
+        res[i+j] = hiword;
+    }
 }
 
 /* divide a_size-limb number a by single limb x, giving a_size-limb quotient
