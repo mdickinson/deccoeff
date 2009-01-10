@@ -1,5 +1,38 @@
-/* To do: add LIMB_DIGITS = 8 option, and make it possible to
+/*
+   get rid of __len__, replace by digit_length (or similar)
+
+   Limits for _Decimal:
+     the length of a coefficient is limited to 1_000_000_000
+
+     note that in terms of Emin, Emax, prec as in the standard:
+      - if clamping is not in effect, E must support exponents in the range
+        [Emin - prec + 1, Emax]
+      - if clamping is in effect, E must support exponents in the range
+        [Emin - prec + 1, Emax - prec + 1]
+      - the standard requires Emin = 1 - Emax
+
+    So we could take Emax = 1000000000, Emin = -999999999
+    and then the raw exponent ...
+
+
+
+
+   Make use of preallocated 'NaN' and 'sNaN' strings.  Or possibly just 'NaN',
+   since it's returned much more frequently than 'sNaN'.
+
+   To do: add LIMB_DIGITS = 8 option, and make it possible to
    configure LIMB_DIGITS using the configure script.
+
+   Make deccoeff_str write Unicode directly, not bytes.
+
+   Consider making exponent a Py_ssize_t, pehaps just in the case where
+   Py_ssize_t is larger than long.  Think harder about exponent and
+   coefficient length constraints, with reference to the specification.
+
+   div_nearest and sqrt_nearest take a lot of time in decimal.py;
+   move them here!
+
+   cmp and str for _Decimal are high priority
 
    docstrings!
 
@@ -37,6 +70,8 @@
 /*
  *  To do
  *  -----
+ *  make exponent a deccoeff (requires making deccoeff signed)
+ *  move __str__ from Python to C
  *  expand Deccoeff-specific tests
  *  improve and correct documentation; remove outdated deccoeff.txt; ReST!
  *  fast recursive algorithms for division, base conversion
@@ -116,7 +151,7 @@
 #if (defined(UINT64_MAX) || defined(uint64_t)) &&       \
     (defined(HAVE___UINT128_T))
 
-/* if a 128-bit unsigned integer type is available, use a 64-bit limb ,
+/* if a 128-bit unsigned integer type is available, use a 64-bit limb
    with 18 digits to a limb ... */
 
 typedef uint64_t limb_t;
@@ -536,7 +571,7 @@ limb_mask(limb_t a, Py_ssize_t n)
 /* convert a character in the range '0' through '9' into a limb and back */
 
 static limb_t
-digit_to_limb(char d)
+wdigit_to_limb(Py_UNICODE d)
 {
     digit dummy;
     return limb_digit_swap(&dummy, LIMB_ZERO, (digit)(d - '0'));
@@ -886,17 +921,49 @@ limbs_getdigit(limb_t *a, Py_ssize_t n)
 
 /* Conversion to and from strings */
 
+/* Fill a character array from an array of limbs */
+
+static void
+limbs_as_unicode(Py_UNICODE *s, Py_ssize_t s_len, const limb_t *a)
+{
+    Py_UNICODE *s_store;
+    limb_t limb;
+    Py_ssize_t nlimbs, ndigits, i, j;
+    if (s_len == 0)
+        return;
+
+    /* s_len == nlimbs*LIMB_DIGITS + ndigits, 0 < ndigits <= LIMB_DIGITS */
+    nlimbs = (s_len-1)/LIMB_DIGITS;
+    ndigits = (s_len-1)%LIMB_DIGITS + 1;
+
+    /* fill in digits from right to left */
+    s_store = s;
+    s += s_len;
+    for (j=0; j < nlimbs; j++) {
+        limb = a[j];
+        for (i=0; i < LIMB_DIGITS; i++)
+            *--s = limb_to_digit(limb_rshift(&limb, limb, 1, LIMB_ZERO));
+    }
+    /* most significant limb */
+    limb = a[nlimbs];
+    for (i=0; i < ndigits; i++)
+        *--s = limb_to_digit(limb_rshift(&limb, limb, 1, LIMB_ZERO));
+
+    assert(s == s_store);
+}
+
+
 /* Convert a character array to an array of limbs.  Returns false on success,
    true if any of the characters was not a valid digit; in the latter case,
    the contents of a are undefined. a should provide ceiling(slen /
    LIMB_DIGITS) limbs. */
 
 static bool
-limbs_from_string(limb_t *a, const char *s, Py_ssize_t s_len)
+limbs_from_unicode(limb_t *a, const Py_UNICODE *s, Py_ssize_t s_len)
 {
     Py_ssize_t i, k, digits_in_limb;
     limb_t acc;
-    char c;
+    Py_UNICODE c;
 
     k = (s_len+LIMB_DIGITS-1) / LIMB_DIGITS;
     digits_in_limb = (s_len+LIMB_DIGITS-1) % LIMB_DIGITS + 1;
@@ -905,7 +972,7 @@ limbs_from_string(limb_t *a, const char *s, Py_ssize_t s_len)
         c = s[i];
         if (c < '0' || c > '9')
             return true;
-        limb_lshift(&acc, acc, 1, digit_to_limb(c));
+        limb_lshift(&acc, acc, 1, wdigit_to_limb(c));
         digits_in_limb--;
         if (digits_in_limb == 0) {
             digits_in_limb = LIMB_DIGITS;
@@ -915,6 +982,46 @@ limbs_from_string(limb_t *a, const char *s, Py_ssize_t s_len)
     }
     assert(digits_in_limb == LIMB_DIGITS);
     return false;
+}
+
+/*
+   variant of limbs_from_string that accepts a string where all but one of the
+   characters is a decimal digit, and ignores the specified character.
+   (Typically, the character to be ignored is a decimal point.)
+
+   On entry, s is a pointer to a character array of length s_len + 1, 0 <=
+   int_len <= s_len, s[0] through s[int_len-1] and s[int_len+1] through
+   s[s_len] contain decimal digits.  The result is then identical to
+   limbs_from_string applied to the concatenation of s[:int_len] and
+   s[int_len+1:].  No checking is performed, and there is no return value.
+
+   This function is used when parsing _Decimal instances.
+ */
+
+static void
+limbs_from_pointed_unicode(limb_t *a, const Py_UNICODE *s, Py_ssize_t s_len,
+                          Py_ssize_t int_len)
+{
+    Py_ssize_t i, k, digits_in_limb;
+    limb_t acc;
+    Py_UNICODE c;
+
+#define GET_DIGIT(i) ((i) < int_len ? s[(i)] : s[(i)+1])
+
+    k = (s_len+LIMB_DIGITS-1) / LIMB_DIGITS;
+    digits_in_limb = (s_len+LIMB_DIGITS-1) % LIMB_DIGITS + 1;
+    acc = LIMB_ZERO;
+    for (i = 0; i < s_len; i++) {
+        c = GET_DIGIT(i);
+        limb_lshift(&acc, acc, 1, wdigit_to_limb(c));
+        digits_in_limb--;
+        if (digits_in_limb == 0) {
+            digits_in_limb = LIMB_DIGITS;
+            a[--k] = acc;
+            acc = LIMB_ZERO;
+        }
+    }
+    assert(digits_in_limb == LIMB_DIGITS);
 }
 
 /* Base conversion, from base 2**15 to base LIMB_BASE.
@@ -1336,7 +1443,7 @@ deccoeff_one(void)
 }
 
 static deccoeff *
-deccoeff_from_string_and_size(const char *s, Py_ssize_t s_len) {
+_deccoeff_from_unicode_and_size(const Py_UNICODE *s, Py_ssize_t s_len) {
     Py_ssize_t z_size;
     deccoeff *z;
     bool invalid;
@@ -1352,7 +1459,7 @@ deccoeff_from_string_and_size(const char *s, Py_ssize_t s_len) {
     if (z == NULL)
         return NULL;
 
-    invalid = limbs_from_string(z->ob_limbs, s, s_len);
+    invalid = limbs_from_unicode(z->ob_limbs, s, s_len);
     if (invalid) {
         Py_DECREF(z);
         PyErr_SetString(PyExc_ValueError,
@@ -1362,6 +1469,26 @@ deccoeff_from_string_and_size(const char *s, Py_ssize_t s_len) {
     return deccoeff_normalize(z);
 }
 
+static deccoeff *
+_deccoeff_from_pointed_unicode_and_size(const Py_UNICODE *s, Py_ssize_t s_len,
+                                      Py_ssize_t int_len) {
+    Py_ssize_t z_size;
+    deccoeff *z;
+
+    if (s_len > MAX_DIGITS) {
+        PyErr_SetString(PyExc_OverflowError,
+                        "too many digits");
+        return NULL;
+    }
+
+    z_size = (s_len + LIMB_DIGITS - 1) / LIMB_DIGITS;
+    z = _deccoeff_new(z_size);
+    if (z == NULL)
+        return NULL;
+
+    limbs_from_pointed_unicode(z->ob_limbs, s, s_len, int_len);
+    return deccoeff_normalize(z);
+}
 
 
 
@@ -2082,8 +2209,6 @@ deccoeff_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
     PyObject *x, *n, *result;
     static char *kwlist[] = {"x", 0};
-    char *s;
-    Py_ssize_t s_len;
 
     /* not allowing subtypes */
     assert(type == &deccoeff_DeccoeffType);
@@ -2095,10 +2220,11 @@ deccoeff_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (x == NULL)
         return (PyObject *)deccoeff_zero();
     else if (PyUnicode_Check(x)) {
-        s = _PyUnicode_AsStringAndSize(x, &s_len);
-        if (s == NULL)
-            return NULL;
-        return (PyObject *)deccoeff_from_string_and_size(s, s_len);
+        Py_UNICODE *s;
+        Py_ssize_t s_len;
+        s = PyUnicode_AS_UNICODE(x);
+        s_len = PyUnicode_GET_SIZE(x);
+        return (PyObject *)_deccoeff_from_unicode_and_size(s, s_len);
     }
     else if (PyIndex_Check(x)) {
         n = PyNumber_Index(x);
@@ -2125,7 +2251,7 @@ deccoeff_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 /* number of digits of a deccoeff, or 0 if that deccoeff is zero. */
 
 static Py_ssize_t
-deccoeff_length(deccoeff *v)
+_deccoeff_length(deccoeff *v)
 {
     Py_ssize_t v_size;
     v_size = Py_SIZE(v);
@@ -2135,65 +2261,9 @@ deccoeff_length(deccoeff *v)
 }
 
 static PyObject *
-deccoeff_str(deccoeff *v)
+deccoeff_digit_length(deccoeff *v)
 {
-    Py_ssize_t sz, nlimbs;
-    limb_t *limb_pointer, *last_limb, limb_value;
-    PyObject *str;
-    int i;
-    Py_UNICODE *p;
-
-    nlimbs = Py_SIZE(v);
-    if (nlimbs == 0) {
-        /* return empty string */
-        str = PyUnicode_FromUnicode(NULL, 1);
-        if (str == NULL)
-            return NULL;
-        p = PyUnicode_AS_UNICODE(str) + 1;
-        *p = '\0';
-        *--p = '0';
-        return str;
-    }
-
-    sz = deccoeff_length(v);
-
-    str = PyUnicode_FromUnicode(NULL, sz);
-    if (str == NULL)
-        return NULL;
-    p = PyUnicode_AS_UNICODE(str) + sz;
-    *p = '\0';
-
-    /* fill in digits from right to left;  start with the least
-       significant limb_t */
-    limb_pointer = v -> ob_limbs;
-    last_limb = limb_pointer + nlimbs - 1;
-    while (limb_pointer < last_limb) {
-        limb_value = *limb_pointer++;
-        for (i=0; i < LIMB_DIGITS; i++)
-            *--p = limb_to_digit(
-                limb_rshift(&limb_value,
-                            limb_value, 1, LIMB_ZERO));
-    }
-    /* most significant limb_t */
-    limb_value = *limb_pointer;
-    assert(limb_bool(limb_value));
-    while (limb_bool(limb_value))
-        *--p = limb_to_digit(
-            limb_rshift(&limb_value, limb_value, 1, LIMB_ZERO));
-    return str;
-}
-
-static PyObject *
-deccoeff_repr(deccoeff *v)
-{
-    PyObject *strv;
-    PyObject *result;
-    strv = deccoeff_str(v);
-    if (strv == NULL)
-        return NULL;
-    result = PyUnicode_FromFormat(CLASS_NAME "('%U')", strv);
-    Py_DECREF(strv);
-    return result;
+    return PyLong_FromSsize_t(_deccoeff_length(v));
 }
 
 static void
@@ -2213,7 +2283,7 @@ deccoeff_dealloc(PyObject *v)
 #define HASH_MASK ((1UL<<HASH_SHIFT) - 1)
 #define HASH_START 16569463434574008864UL
 #else
-#error "Expect sizeof(long) to be 4 or 8"
+#error "Expecting sizeof(long) to be 4 or 8"
 #endif
 
 static long
@@ -2250,11 +2320,13 @@ DECCOEFF_WRAP_BINOP(deccoeff_divmod, _deccoeff_divmod)
 DECCOEFF_WRAP_BINOP(deccoeff_floor_divide, _deccoeff_floor_divide)
 
 static PyMethodDef deccoeff_methods[] = {
+    {"digit_length", (PyCFunction)deccoeff_digit_length, METH_NOARGS,
+     "Number of digits."},
     {NULL, NULL}
 };
 
 static PyMappingMethods deccoeff_as_mapping = {
-    (lenfunc)deccoeff_length,               /*mp_length*/
+    0,                                      /*mp_length*/
     (binaryfunc)deccoeff_subscript,         /*mp_subscript*/
     0, /*mp_ass_subscript*/
 };
@@ -2295,6 +2367,68 @@ static PyNumberMethods deccoeff_as_number = {
     0, /*nb_inplace_true_divide*/
     (unaryfunc) deccoeff_long,              /*nb_index*/
 };
+
+static PyObject *
+deccoeff_str(deccoeff *v)
+{
+    Py_ssize_t sz, nlimbs;
+    limb_t *limb_pointer, *last_limb, limb_value;
+    PyObject *str;
+    int i;
+    Py_UNICODE *p;
+
+    nlimbs = Py_SIZE(v);
+    if (nlimbs == 0) {
+        /* return empty string */
+        str = PyUnicode_FromUnicode(NULL, 1);
+        if (str == NULL)
+            return NULL;
+        p = PyUnicode_AS_UNICODE(str) + 1;
+        *p = '\0';
+        *--p = '0';
+        return str;
+    }
+
+    sz = _deccoeff_length(v);
+
+    str = PyUnicode_FromUnicode(NULL, sz);
+    if (str == NULL)
+        return NULL;
+    p = PyUnicode_AS_UNICODE(str) + sz;
+    *p = '\0';
+
+    /* fill in digits from right to left;  start with the least
+       significant limb_t */
+    limb_pointer = v -> ob_limbs;
+    last_limb = limb_pointer + nlimbs - 1;
+    while (limb_pointer < last_limb) {
+        limb_value = *limb_pointer++;
+        for (i=0; i < LIMB_DIGITS; i++)
+            *--p = limb_to_digit(
+                limb_rshift(&limb_value,
+                            limb_value, 1, LIMB_ZERO));
+    }
+    /* most significant limb_t */
+    limb_value = *limb_pointer;
+    assert(limb_bool(limb_value));
+    while (limb_bool(limb_value))
+        *--p = limb_to_digit(
+            limb_rshift(&limb_value, limb_value, 1, LIMB_ZERO));
+    return str;
+}
+
+static PyObject *
+deccoeff_repr(deccoeff *v)
+{
+    PyObject *strv;
+    PyObject *result;
+    strv = deccoeff_str(v);
+    if (strv == NULL)
+        return NULL;
+    result = PyUnicode_FromFormat(CLASS_NAME "('%U')", strv);
+    Py_DECREF(strv);
+    return result;
+}
 
 static PyTypeObject deccoeff_DeccoeffType = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
@@ -2345,64 +2479,75 @@ static PyTypeObject deccoeff_DeccoeffType = {
 
 /* A finite decimal object needs a sign, a coefficient and an exponent.  An
    infinity has a sign and nothing more; the coefficient and exponent are
-   ignored.  A nan has a sign, and carries additional information in the
-   coefficient.  The exponent is not used. */
-
-/* We encode information about the sign and type of the decimal in a series of
-   bits. */
-
-/* Recall that the total ordering for decimals is:
-+finite < +inf < sNaN < qNaN */
+   ignored.  A (quiet or signalling) nan has a sign, and may carry additional
+   information in the coefficient.  The exponent is not used. */
 
 #define DEC_FLAGS_NEG (1<<0)
-#define DEC_FLAGS_SPECIAL (1<<1)
-#define DEC_FLAGS_INF  (1<<2)
-#define DEC_FLAGS_NAN (1<<3)
-#define DEC_FLAGS_SNAN (1<<4)
-#define DEC_FLAGS_QNAN (1<<5)
+#define DEC_FLAGS_NONZERO (1<<1) /* currently unused, but may want this later */
+#define DEC_FLAGS_SPECIAL (1<<2)
+#define DEC_FLAGS_INF  (1<<3)
+#define DEC_FLAGS_NAN (1<<4)
+#define DEC_FLAGS_SNAN (1<<5)
+#define DEC_FLAGS_QNAN (1<<6)
+
+#define FINITE_FLAGS 0
 #define INF_FLAGS (DEC_FLAGS_SPECIAL | DEC_FLAGS_INF)
 #define QNAN_FLAGS (DEC_FLAGS_SPECIAL | DEC_FLAGS_NAN | DEC_FLAGS_QNAN)
 #define SNAN_FLAGS (DEC_FLAGS_SPECIAL | DEC_FLAGS_NAN | DEC_FLAGS_SNAN)
 
+/* note that FINITE_FLAGS < INF_FLAGS < SNAN_FLAGS < QNAN_FLAGS,
+   corresponding to the standard total ordering of Decimals */
+
+/* the following four values will be initialized at module startup */
+static PyObject *inf_string;
+static PyObject *ninf_string;
+static PyObject *nan_string;
+static PyObject *snan_string;
 
 typedef int dec_flag_t;
-typedef long exp_t;
+typedef Py_ssize_t exp_t;
 
 typedef struct {
     PyObject_HEAD
-    deccoeff *dec_coeff;
-    exp_t dec_exp;
-    dec_flag_t dec_flags;
+    deccoeff *dec_coeff;   /* coefficient, or NaN payload; NULL for infinity */
+    PyLongObject *dec_exp; /* exponent: NULL for an infinity or NaN */
+    dec_flag_t dec_flags;  /* flags describing sign and number class */
 } _Decimal;
 
 static PyTypeObject deccoeff__DecimalType;
-
-/* integer used in the exponent slot of an infinity or nan */
-
-#define INVALID_EXP LONG_MAX
 
 /* create new _Decimal (or instance of a subclass of _Decimal); no
    type-checking or conversion---just allocate memory and fill the slots */
 
 static _Decimal *
-__Decimal_new(PyTypeObject *type, dec_flag_t flags, deccoeff *coeff, long exp)
+__Decimal_new(PyTypeObject *type, dec_flag_t flags, deccoeff *coeff,
+              PyLongObject *exp)
 {
     _Decimal *self;
 
-    /* sanity checks */
+    /* sanity check on flags */
+    assert(
+        ((flags | 1) == (FINITE_FLAGS | 1)) ||    /* finite (poss. zero) */
+        ((flags | 1) == (INF_FLAGS | 1)) ||       /* infinity */
+        ((flags | 1) == (QNAN_FLAGS | 1)) ||      /* quiet nan */
+        ((flags | 1) == (SNAN_FLAGS | 1)));       /* signaling nan */
+
     if (flags & DEC_FLAGS_INF)
         assert(coeff == NULL);
-    else
+    else {
         assert(coeff != NULL);
+        Py_INCREF(coeff);
+    }
     if (flags & DEC_FLAGS_SPECIAL)
-        assert(exp == INVALID_EXP);
-    else
-        assert(exp != INVALID_EXP);
+        assert(exp == NULL);
+    else {
+        assert(exp != NULL);
+        Py_INCREF(exp);
+    }
 
     self = (_Decimal *)type->tp_alloc(type, 0);
     if (self == NULL)
         return NULL;
-    Py_XINCREF(coeff);
     self->dec_flags = flags;
     self->dec_coeff = coeff;
     self->dec_exp = exp;
@@ -2419,9 +2564,17 @@ _Decimal_dealloc(PyObject *self)
     /* coefficient should be present iff decimal instance is not infinite */
     if (dec->dec_flags & DEC_FLAGS_INF)
         assert(dec->dec_coeff == NULL);
-    else
+    else {
         assert(dec->dec_coeff != NULL);
-    Py_XDECREF(dec->dec_coeff);
+        Py_DECREF(dec->dec_coeff);
+    }
+    /* exponent is present only for finite numbers */
+    if (dec->dec_flags & DEC_FLAGS_SPECIAL)
+        assert(dec->dec_exp == NULL);
+    else {
+        assert(dec->dec_exp != NULL);
+        Py_DECREF(dec->dec_exp);
+    }
     self->ob_type->tp_free(self);
 }
 
@@ -2429,7 +2582,8 @@ _Decimal_dealloc(PyObject *self)
    coefficient and exponent.  No type checking or conversion. */
 
 static _Decimal *
-__Decimal_finite(PyTypeObject *type, int sign, deccoeff *coeff, long exp) {
+__Decimal_finite(PyTypeObject *type, int sign, deccoeff *coeff,
+                 PyLongObject *exp) {
     assert(sign == 0 || sign == 1);
     return __Decimal_new(type, sign, coeff, exp);
 }
@@ -2440,7 +2594,7 @@ static _Decimal *
 __Decimal_inf(PyTypeObject *type, int sign)
 {
     assert(sign == 0 || sign == 1);
-    return __Decimal_new(type, sign | INF_FLAGS, NULL, INVALID_EXP);
+    return __Decimal_new(type, sign | INF_FLAGS, NULL, NULL);
 }
 
 /* internal function to create a qNaN with the given sign, payload */
@@ -2449,7 +2603,7 @@ static _Decimal *
 __Decimal_qnan(PyTypeObject *type, int sign, deccoeff *payload)
 {
     assert(sign == 0 || sign == 1);
-    return __Decimal_new(type, sign | QNAN_FLAGS, payload, INVALID_EXP);
+    return __Decimal_new(type, sign | QNAN_FLAGS, payload, NULL);
 }
 
 /* internal function to create a sNaN with the given sign, payload */
@@ -2458,7 +2612,7 @@ static _Decimal *
 __Decimal_snan(PyTypeObject *type, int sign, deccoeff *payload)
 {
     assert(sign == 0 || sign == 1);
-    return __Decimal_new(type, sign | SNAN_FLAGS, payload, INVALID_EXP);
+    return __Decimal_new(type, sign | SNAN_FLAGS, payload, NULL);
 }
 
 /* create a new finite _Decimal instance */
@@ -2469,27 +2623,265 @@ _Decimal_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     /* create a new finite _Decimal instance, given a sequence consisting
        of its sign (an integer), coefficient and exponent */
 
-    PyObject *ocoeff;
+    PyObject *ocoeff, *oexp;
     deccoeff *coeff;
+    PyLongObject *exp;
     int sign;
-    long exp;
     static char *kwlist[] = {"sign", "coeff", "exp", 0};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "iOl:" "_Decimal", kwlist,
-                                     &sign, &ocoeff, &exp))
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "iOO:" "_Decimal", kwlist,
+                                     &sign, &ocoeff, &oexp))
         return NULL;
+    if (!(sign == 0 || sign == 1)) {
+        PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
+        return NULL;
+    }
     if (ocoeff->ob_type != &deccoeff_DeccoeffType) {
         PyErr_SetString(PyExc_TypeError, "coeff should have type Deccoeff");
         return NULL;
     }
     coeff = (deccoeff *)ocoeff;
-
-    if (!(sign == 0 || sign == 1)) {
-        PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
+    if (oexp->ob_type != &PyLong_Type) {
+        PyErr_SetString(PyExc_TypeError, "exp should have type int");
         return NULL;
     }
-
+    exp = (PyLongObject *)oexp;
     return (PyObject *)__Decimal_finite(type, sign, coeff, exp);
+}
+
+/* Create a _Decimal instance directly from a string; classmethod */
+
+static PyObject *
+_Decimal_from_str(PyTypeObject *cls, PyObject *arg)
+{
+    PyObject *result=NULL;
+    deccoeff *coeff;
+    Py_ssize_t ndigits;
+    Py_UNICODE *coeff_start, *coeff_end, *s_end, *int_end, *exp_start, *s;
+    int sign = 0, exp_sign = 0;
+    PyObject *exp, *temp, *frac_digits;
+    deccoeff *duexp;
+
+    if (!PyUnicode_Check(arg)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "Expected str instance");
+        return NULL;
+    }
+    s = PyUnicode_AS_UNICODE(arg);
+    s_end = s + PyUnicode_GET_SIZE(arg);
+
+    /* Stage 1: parse and validate the string, identifying the points
+       where the coefficients and exponent start and stop */
+
+    /* optional sign */
+    if (*s == '+')
+        s++;
+    else if (*s == '-') {
+        s++;
+        sign = 1;
+    }
+
+    switch(*s) {
+    case 'n':
+    case 'N':
+        /* nan */
+        s++;
+        if (*s == 'a' || *s == 'A')
+            s++;
+        else
+            goto parse_error;
+        if (*s == 'n' || *s == 'N')
+            s++;
+        else
+            goto parse_error;
+        coeff_start = s;
+        while ('0' <= *s && *s <= '9')
+            s++;
+        if (s != s_end)
+            goto parse_error;
+
+        coeff = _deccoeff_from_unicode_and_size(coeff_start, s-coeff_start);
+        if (coeff != NULL) {
+            result = (PyObject *)__Decimal_qnan(cls, sign, coeff);
+            Py_DECREF(coeff);
+        }
+        break;
+    case 's':
+    case 'S':
+        /* snan */
+        s++;
+        if (*s == 'n' || *s == 'N')
+            s++;
+        else
+            goto parse_error;
+        if (*s == 'a' || *s == 'A')
+            s++;
+        else
+            goto parse_error;
+        if (*s == 'n' || *s == 'N')
+            s++;
+        else
+            goto parse_error;
+        coeff_start = s;
+        while ('0' <= *s && *s <= '9')
+            s++;
+        if (s != s_end)
+            goto parse_error;
+
+        coeff = _deccoeff_from_unicode_and_size(coeff_start, s-coeff_start);
+        if (coeff != NULL) {
+            result = (PyObject *)__Decimal_snan(cls, sign, coeff);
+            Py_DECREF(coeff);
+        }
+        break;
+    case 'i':
+    case 'I':
+        /* inf[inity] */
+        s++;
+        if (*s == 'n' || *s == 'N')
+            s++;
+        else
+            goto parse_error;
+        if (*s == 'f' || *s == 'F')
+            s++;
+        else
+            goto parse_error;
+        if (*s == 'i' || *s == 'I') {
+            s++;
+            if (*s == 'n' || *s == 'N')
+                s++;
+            else
+                goto parse_error;
+            if (*s == 'i' || *s == 'I')
+                s++;
+            else
+                goto parse_error;
+            if (*s == 't' || *s == 'T')
+                s++;
+            else
+                goto parse_error;
+            if (*s == 'y' || *s == 'Y')
+                s++;
+            else
+                goto parse_error;
+        }
+        /* end of string */
+        if (s != s_end)
+            goto parse_error;
+
+        result = (PyObject *)__Decimal_inf(cls, sign);
+        break;
+    default:
+        /* numeric part: at least one digit, with an optional decimal point */
+        coeff_start = s;
+        while ('0' <= *s && *s <= '9')
+            s++;
+        int_end = s;
+        if (*s == '.') {
+            s++;
+            while ('0' <= *s && *s <= '9')
+                s++;
+            coeff_end = s-1;
+        }
+        else
+            coeff_end= s;
+
+        ndigits = coeff_end - coeff_start;
+        if (ndigits == 0)
+            goto parse_error;
+
+        /* [e <exponent>] */
+        if (*s == 'e' || *s == 'E') {
+            s++;
+            if (*s == '+')
+                s++;
+            else if (*s == '-') {
+                s++;
+                exp_sign = 1;
+            }
+            exp_start = s;
+            if (!('0' <= *s && *s <= '9'))
+                goto parse_error;
+            s++;
+            while ('0' <= *s && *s <= '9')
+                s++;
+        }
+        else
+            exp_start = s;
+
+        /* end of string */
+        if (s != s_end)
+            goto parse_error;
+
+        /* parse exponent (without sign), returning a deccoeff */
+        duexp = _deccoeff_from_unicode_and_size(exp_start, s-exp_start);
+        if (duexp == NULL)
+            return NULL;
+
+        /* REF: duexp */
+
+        /* Later we'll allow negative deccoeffs, and have the exponent
+           be a deccoeff.   Later  :)
+           For now we have to convert this to a Python long */
+        exp = (PyObject *)deccoeff_long(duexp);
+        Py_DECREF(duexp);
+        if (exp == NULL)
+            return NULL;
+
+        /* REF: exp */
+
+        /* adjust exponent:  include sign, and adjust by length
+           of fractional part of input */
+        if (exp_sign == 1) {
+            /* negate exp */
+            temp = PyNumber_Negative(exp);
+            Py_DECREF(exp);
+            exp = temp;
+            if (exp == NULL)
+                return NULL;
+        }
+
+        /* REF: exp */
+
+        /* subtract frac_digits */
+        frac_digits = PyLong_FromSize_t(coeff_end - int_end);
+        if (frac_digits == NULL) {
+            Py_DECREF(exp);
+            return NULL;
+        }
+
+        /* REF: exp, frac_digits */
+
+        temp = PyNumber_Subtract(exp, frac_digits);
+        Py_DECREF(frac_digits);
+        Py_DECREF(exp);
+        exp = temp;
+        if (exp == NULL)
+            return NULL;
+
+        /* REF: exp */
+
+        /* get coefficient */
+        coeff = _deccoeff_from_pointed_unicode_and_size(coeff_start,
+                            coeff_end - coeff_start, int_end - coeff_start);
+
+        if (coeff == NULL) {
+            Py_DECREF(exp);
+            return NULL;
+        }
+
+        result = (PyObject *)__Decimal_finite(cls, sign, coeff,
+                                              (PyLongObject *)exp);
+        Py_DECREF(coeff);
+        Py_DECREF(exp);
+    }
+    return result;
+
+  parse_error:
+    PyErr_SetString(PyExc_ValueError,
+                    "invalid numeric string");
+    return NULL;
+
 }
 
 /* Create a new finite _Decimal instance; classmethod */
@@ -2497,18 +2889,23 @@ _Decimal_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static PyObject *
 _Decimal_finite(PyTypeObject *cls, PyObject *args)
 {
-    PyObject *ocoeff;
+    PyObject *ocoeff, *oexp;
     deccoeff *coeff;
+    PyLongObject *exp;
     int sign;
-    long exp;
 
-    if (!PyArg_ParseTuple(args, "iOl:" "_Decimal", &sign, &ocoeff, &exp))
+    if (!PyArg_ParseTuple(args, "iOO:" "_Decimal", &sign, &ocoeff, &oexp))
         return NULL;
     if (ocoeff->ob_type != &deccoeff_DeccoeffType) {
         PyErr_SetString(PyExc_TypeError, "coeff should have type Deccoeff");
         return NULL;
     }
     coeff = (deccoeff *)ocoeff;
+    if (oexp->ob_type != &PyLong_Type) {
+        PyErr_SetString(PyExc_TypeError, "exp should have type int");
+        return NULL;
+    }
+    exp = (PyLongObject *)oexp;
     if (!(sign == 0 || sign == 1)) {
         PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
         return NULL;
@@ -2625,7 +3022,8 @@ _Decimal_getexp(_Decimal *self, void *closure)
                         "infinity or NaN has no exponent");
         return NULL;
     }
-    return PyLong_FromLong(self->dec_exp);
+    Py_INCREF(self->dec_exp);
+    return (PyObject *)(self->dec_exp);
 }
 
 /* Return True if the given Decimal is special (an infinity or NaN),
@@ -2695,6 +3093,16 @@ _Decimal_is_signed(_Decimal *self)
         Py_RETURN_FALSE;
 }
 
+static PyObject *
+_Decimal_is_zero(_Decimal *self)
+{
+    if ((self->dec_flags & DEC_FLAGS_SPECIAL) ||
+        deccoeff_bool(self->dec_coeff))
+        Py_RETURN_FALSE;
+    else
+        Py_RETURN_TRUE;
+}
+
 static _Decimal *
 _Decimal_copy(_Decimal *self)
 {
@@ -2721,12 +3129,14 @@ static PyMethodDef _Decimal_methods[] = {
     {"_qnan", (PyCFunction)_Decimal_qNaN, METH_VARARGS|METH_CLASS, " "},
     {"_snan", (PyCFunction)_Decimal_sNaN, METH_VARARGS|METH_CLASS, " "},
     {"_inf", (PyCFunction)_Decimal_inf, METH_VARARGS|METH_CLASS, " "},
+    {"from_str", (PyCFunction)_Decimal_from_str, METH_O|METH_CLASS, " "},
     {"is_finite", (PyCFunction)_Decimal_is_finite, METH_NOARGS, " "},
     {"is_infinite", (PyCFunction)_Decimal_is_infinite, METH_NOARGS, " "},
     {"is_nan", (PyCFunction)_Decimal_is_nan, METH_NOARGS, " "},
     {"is_qnan", (PyCFunction)_Decimal_is_qnan, METH_NOARGS, " "},
     {"is_snan", (PyCFunction)_Decimal_is_snan, METH_NOARGS, " "},
     {"is_signed", (PyCFunction)_Decimal_is_signed, METH_NOARGS, " "},
+    {"is_zero", (PyCFunction)_Decimal_is_zero, METH_NOARGS, " "},
     {"copy", (PyCFunction)_Decimal_copy, METH_NOARGS, " "},
     {"copy_negate", (PyCFunction)_Decimal_copy_negate, METH_NOARGS, " "},
     {"copy_abs", (PyCFunction)_Decimal_copy_abs, METH_NOARGS, " "},
@@ -2825,6 +3235,21 @@ PyInit_deccoeff(void)
                                (PyObject *) &deccoeff_DeccoeffType);
     if (check == -1)
         return NULL;
+
+    /* Cache some commonly used strings */
+    inf_string = PyUnicode_FromString("Infinity");
+    if (inf_string == NULL)
+        return NULL;
+    ninf_string = PyUnicode_FromString("-Infinity");
+    if (ninf_string == NULL)
+        return NULL;
+    nan_string = PyUnicode_FromString("NaN");
+    if (nan_string == NULL)
+        return NULL;
+    snan_string = PyUnicode_FromString("sNaN");
+    if (snan_string == NULL)
+        return NULL;
+
 
     Py_INCREF(&deccoeff__DecimalType);
     check = PyModule_AddObject(m, "_Decimal",

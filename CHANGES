@@ -1,7 +1,11 @@
 Changes since version 0.2
 -------------------------
 
-Add skeleton _Decimal class, to serve as base for Decimal
+Creation of a Deccoeff from a Python 3.0 str (i.e. unicode) instance
+no longer goes through an intermediate bytes stage.
+
+Add skeleton _Decimal class, to serve as base for Decimal, and
+modify decimal.py to use it.
 
 Make hash produce 64-bit values for 64-bit builds.
 
