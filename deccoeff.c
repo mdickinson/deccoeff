@@ -52,9 +52,10 @@
   depends on what C types are available.
 
   limb_t is an integer type that can hold any integer in the range [0,
-  LIMB_BASE).  double_limb_t can hold any integer in [0, LIMB_BASE*LIMB_BASE).
-  Type digit_limb_t is used for Deccoeff <-> PyLong conversions and should be
-  able to hold any integer in [0, LIMB_BASE * PyLong_BASE).
+  LIMB_BASE); LIMB_BASE itself should also be representable.  double_limb_t
+  can hold any integer in [0, LIMB_BASE*LIMB_BASE).  Type digit_limb_t is used
+  for Deccoeff <-> PyLong conversions and should be able to hold any integer
+  in [0, LIMB_BASE * PyLong_BASE).
 */
 
 #if (defined(UINT64_MAX) || defined(uint64_t)) &&       \
@@ -96,39 +97,21 @@ typedef unsigned long digit_limb_t;
 
 #endif
 
-#define LIMB_ZERO ((limb_t)0)
-#define LIMB_ONE ((limb_t)1)
-
 /* powers_of_ten contains 10**0 through 10**(LIMB_DIGITS-1).
    It's filled during module initialization. */
 
 static limb_t powers_of_ten[LIMB_DIGITS];
 
-/* Rational approximations to log(10)/log(2), used for base conversion:
-   485/146  = 3.321917808219...
-   log2(10) = 3.321928094887...
-   2136/643 = 3.321928460342...
-
-   Note that for correctness of scale_Py_ssize_t, it's required that LOG2_10UP
-   * LOG2_10UQ * LIMB_DIGITS * PyLong_SHIFT and LOG2_10LP * LOG2_10LQ *
-   LIMB_DIGITS * PyLong_SHIFT both fit into a Py_ssize_t
-*/
-
-#define LOG2_10LP 485
-#define LOG2_10LQ 146
-#define LOG2_10UP 2136
-#define LOG2_10UQ 643
-
 /*
-  The rest of this file is organized in three parts.  First we have primitive
-  operations on single limbs (arithmetic, shifts, etc.)---e.g. limb_adc,
-  limb_fma, ....  This is followed by functions defining operations on arrays
-  of limbs (limbs_add, limbs_multiply, ...); these functions contain the
-  necessary mathematical algorithms, but know nothing about allocating memory,
-  raising exceptions, converting types, etc.  Lastly we have functions
-  providing the deccoeff operations.
+  The Deccoeff part of this file is organized in three parts.  First we have
+  primitive operations on single limbs (arithmetic, shifts,
+  etc.)---e.g. limb_adc, limb_fmaa, ....  This is followed by functions
+  defining operations on arrays of limbs (limbs_add, limbs_mul, ...); these
+  functions contain the necessary mathematical algorithms, but know nothing
+  about Python stuff like allocating memory, raising exceptions, converting
+  types, etc.  Lastly we have functions providing the deccoeff operations
+  themselves.
 */
-
 
 /*********************************
  * Primitive operations on limbs *
@@ -136,11 +119,10 @@ static limb_t powers_of_ten[LIMB_DIGITS];
 
 /* The idea behind this section is that it should be easy to change the
    underlying representation of a limb without greatly affecting the rest of
-   the code.  For example, on a 64-bit platform one might want to experiment
-   with a 64-bit limb containing 18 or 19 digits per limb, or one might want
-   to use alternative encodings like binary-coded decimal or densely packed
-   decimal.  In that case, only this section should have to be changed; all
-   following code uses only these primitive operations to operate on limbs.
+   the code.  For example, one might want to use alternative encodings like
+   binary-coded decimal or densely packed decimal.  In that case, only this
+   section should have to be changed, provided that all following code uses
+   only these primitive operations to operate on limbs.
 
    Ideally, later code should not assume that limbs can be operated on using
    the usual arithmetic operators, or that they are comparable with < or ==
@@ -148,12 +130,16 @@ static limb_t powers_of_ten[LIMB_DIGITS];
    the same integer, or may not even be encoded as a C integer type).
 */
 
-#define LIMB_BASE (LIMB_MAX+(limb_t)1)
+#define LIMB_ZERO ((limb_t)0)
+#define LIMB_ONE ((limb_t)1)
+#define LIMB_BASE (LIMB_MAX+LIMB_ONE)
+
+/* limb_error is called for internal errors */
 
 static void
 limb_error(const char *msg)
 {
-    fprintf(stderr, "%s\n", msg);
+    fprintf(stderr, "limb_error: %s.  Please report.\n", msg);
     abort();
 }
 
@@ -164,7 +150,7 @@ limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
 {
     limb_t sum;
     sum = a + b + (c ? LIMB_ONE : LIMB_ZERO);
-    if (sum >= LIMB_BASE) {
+    if (sum >= LIMB_BASE || sum < a) {
         *r = sum - LIMB_BASE;
         return true;
     }
@@ -174,8 +160,8 @@ limb_adc(limb_t *r, limb_t a, limb_t b, bool c)
     }
 }
 
-/* subtract with borrow: compute a - (b + c); put result in *r and return the
-   carry (true if a - (b+c) < 0, false otherwise). */
+/* subtract with borrow: compute a - b - c; put result in *r and return the
+   carry (true if a - b - c < 0, false otherwise). */
 
 static bool
 limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
@@ -192,8 +178,8 @@ limb_sbb(limb_t *r, limb_t a, limb_t b, bool c)
     }
 }
 
-/* multiply and add with two addends; this is useful for long multiplication.
-   Store the low part of the result in *low, and return the high part. */
+/* multiply and add with two addends; useful for long multiplication.  Store
+   the low part of the result in *low, and return the high part. */
 
 static limb_t
 limb_fmaa(limb_t *low, limb_t a, limb_t b, limb_t c, limb_t d) {
@@ -216,7 +202,7 @@ limb_div(limb_t *rem, limb_t high, limb_t low, limb_t c) {
     return (limb_t)(hilo/c);
 }
 
-/* determine whether the given limb is nonzero */
+/* return true if the limb is nonzero, else false */
 
 static bool
 limb_bool(limb_t a)
@@ -224,14 +210,15 @@ limb_bool(limb_t a)
     return a != 0;
 }
 
-/* The following two functions are used in base conversion.  Any value n in
-   the range [0, LIMB_BASE * PyLong_BASE) can be written either in the form
+/* The following two functions are the primitive operations needed for base
+   conversion.  Any value n in the range [0, LIMB_BASE * PyLong_BASE) can be
+   written either in the form
 
-   n = a * LIMB_BASE + b     'digit-limb'
+      n = a * LIMB_BASE + b     'digit-limb'
 
    with 0 <= a < PyLong_BASE, 0 <= b < LIMB_BASE, or in the form
 
-   n = c * PyLong_BASE + d    'limb-digit'
+      n = c * PyLong_BASE + d    'limb-digit'
 
    with 0 <= c < LIMB_BASE, 0 <= d < PyLong_BASE.  digit_limb_swap converts
    from the first form to the second, limb_digit_swap does the reverse. */
@@ -261,142 +248,28 @@ limb_hash(limb_t x) {
     return (long)x;
 }
 
-/* return index of most significant digit of given limb; result is undefined
-   if the limb is 0 */
+/* smallest nonnegative i such that x < 10**i; undefined if x == 0 */
 
 static Py_ssize_t
-limb_msd(limb_t x) {
+limb_len(limb_t x) {
     Py_ssize_t i;
     if (x == 0)
-        limb_error("limb_msd: zero argument");
-    for (i=0; i < LIMB_DIGITS && powers_of_ten[i] <= x; i++);
+        limb_error("limb_len: zero argument");
+    i = 0;
+    while (i < LIMB_DIGITS && powers_of_ten[i] <= x)
+        i++;
     return i;
 }
-
-/* here's an attempt at faster multiplication; it's in this section because it
-   depends on knowing the representation of a limb.  It saves on the number of
-   divisions required by accumulating the sum of several partial products at a
-   time.  The largest number of partials we can accumulate is 42 if
-   LIMB_DIGITS == 4, 18 if LIMB_DIGITS == 9, and 340 if LIMB_DIGITS = 18. */
-
-#if LIMB_DIGITS == 4
-#define MAX_PARTIALS 42  /* floor(2^32 / 10^8) */
-#elif LIMB_DIGITS == 9
-#define MAX_PARTIALS 18  /* floor(2^64 / 10^18) */
-#elif LIMB_DIGITS == 18
-#define MAX_PARTIALS 340 /* floor(2^128 / 10^36) */
-#else
-#error "unrecognised value for LIMB_DIGITS"
-#endif
-
-/* res[0:a_size+b_size] := a*b, assuming b_size <= MIN(MAX_PARTIALS,
-   a_size) */
-
-static void
-limbs_multiply_init(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-                const limb_t *b, Py_ssize_t b_size)
-{
-    double_limb_t acc = 0;
-    Py_ssize_t j, k;
-    assert(b_size <= MAX_PARTIALS && b_size <= a_size);
-    for (k=0; k<b_size; k++) {
-        for (j=0; j<=k; j++)
-            acc += (double_limb_t)a[k-j]*b[j];
-        res[k] = acc % LIMB_BASE;
-        acc /= LIMB_BASE;
-    }
-    for (; k < a_size; k++) {
-        for (j=0; j<b_size; j++)
-            acc += (double_limb_t)a[k-j]*b[j];
-        res[k] = acc % LIMB_BASE;
-        acc /= LIMB_BASE;
-    }
-    for (k=0; k<b_size; k++) {
-        for (j=k+1; j < b_size; j++)
-            acc += (double_limb_t)a[k+a_size-j]*b[j];
-        res[k+a_size] = acc % LIMB_BASE;
-        acc /= LIMB_BASE;
-    }
-    assert(acc == 0);
-}
-
-/* res[0:a_size+b_size] := a*b + res[0:a_size], assuming b_size <=
-   MIN(MAX_PARTIALS, a_size) */
-
-static void
-limbs_multiply_add(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-                const limb_t *b, Py_ssize_t b_size)
-{
-    double_limb_t acc = 0;
-    Py_ssize_t j, k;
-    assert(b_size <= MAX_PARTIALS && b_size <= a_size);
-    for (k=0; k<b_size; k++) {
-        acc += res[k];
-        for (j=0; j<=k; j++)
-            acc += (double_limb_t)a[k-j]*b[j];
-        res[k] = acc % LIMB_BASE;
-        acc /= LIMB_BASE;
-    }
-    for (; k < a_size; k++) {
-        acc += res[k];
-        for (j=0; j<b_size; j++)
-            acc += (double_limb_t)a[k-j]*b[j];
-        res[k] = acc % LIMB_BASE;
-        acc /= LIMB_BASE;
-    }
-    for (k=0; k<b_size; k++) {
-        for (j=k+1; j < b_size; j++)
-            acc += (double_limb_t)a[k+a_size-j]*b[j];
-        res[k+a_size] = acc % LIMB_BASE;
-        acc /= LIMB_BASE;
-    }
-    assert(acc == 0);
-}
-
-/* res[0:a_size+b_size] := a * b */
-
-static void
-limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
-                const limb_t *b, Py_ssize_t b_size)
-{
-    /* reduce to case where a_size >= b_size */
-    if (a_size < b_size) {
-        const limb_t *temp;
-        Py_ssize_t temp_size;
-        temp = a; a = b; b = temp;
-        temp_size = a_size; a_size = b_size; b_size = temp_size;
-    }
-
-    assert(b_size <= a_size);
-    if (b_size < MAX_PARTIALS)
-        limbs_multiply_init(res, a, a_size, b, b_size);
-    else {
-        limbs_multiply_init(res, a, a_size, b, MAX_PARTIALS);
-        b_size -= MAX_PARTIALS;
-        b += MAX_PARTIALS;
-        res += MAX_PARTIALS;
-        while (b_size >= MAX_PARTIALS) {
-            limbs_multiply_add(res, a, a_size, b, MAX_PARTIALS);
-            b_size -= MAX_PARTIALS;
-            b += MAX_PARTIALS;
-            res += MAX_PARTIALS;
-        }
-        limbs_multiply_add(res, a, a_size, b, b_size);
-    }
-}
-
-#undef LIMB_BASE
-
 
 /*******************************
  * Derived operations on limbs *
  *******************************/
 
 /* These limb operations are derived from the primitive operations above, and
-   provided for convenience.  There is no need to change these if/when the
+   are provided for convenience.  There is no need to change these if/when the
    representation of a limb_t changes. */
 
-/* comparisons */
+/* comparison: -1 if a < b, 0 if a == b, 1 if a > b */
 
 static int
 limb_cmp(limb_t a, limb_t b)
@@ -410,30 +283,33 @@ limb_cmp(limb_t a, limb_t b)
         return 0;
 }
 
-/* a == b iff a - b is zero */
+/* true if a == b, else false */
 
 static bool
 limb_eq(limb_t a, limb_t b)
 {
+    /* a == b iff a - b is zero */
     limb_t diff;
     limb_sbb(&diff, a, b, false);
     return !limb_bool(diff);
 }
 
-/* a < b iff a - b overflows */
+/* true if a < b, else false */
 
 static bool
 limb_lt(limb_t a, limb_t b)
 {
+    /* a < b iff a - b overflows */
     limb_t dummy;
     return limb_sbb(&dummy, a, b, false);
 }
 
-/* a <= b iff a - b - 1 overflows */
+/* true if a <= b, else false */
 
 static bool
 limb_le(limb_t a, limb_t b)
 {
+    /* a <= b iff a - b - 1 overflows */
     limb_t dummy;
     return limb_sbb(&dummy, a, b, true);
 }
@@ -448,22 +324,6 @@ limb_mask(limb_t a, Py_ssize_t n)
     if (n < LIMB_DIGITS)
         limb_div(&a, LIMB_ZERO, a, powers_of_ten[n]);
     return a;
-}
-
-/* convert a character in the range '0' through '9' into a limb and back */
-
-static limb_t
-wdigit_to_limb(Py_UNICODE d)
-{
-    digit dummy;
-    return limb_digit_swap(&dummy, LIMB_ZERO, (digit)(d - '0'));
-}
-
-static char
-limb_to_digit(limb_t b)
-{
-    limb_t dummy;
-    return '0' + (char)digit_limb_swap(&dummy, 0, b);
 }
 
 /* *res = a << n + b, b < 10**n.  Returns part shifted out. */
@@ -509,9 +369,170 @@ limb_getdigit(limb_t x, Py_ssize_t n)
     return limb_mask(q, 1);
 }
 
+/* convert a character in the range '0' through '9' into a limb and back */
+
+static limb_t
+wdigit_to_limb(Py_UNICODE d)
+{
+    digit dummy;
+    return limb_digit_swap(&dummy, LIMB_ZERO, (digit)(d - (Py_UNICODE)'0'));
+}
+
+static Py_UNICODE
+limb_to_wdigit(limb_t b)
+{
+    limb_t dummy;
+    return (Py_UNICODE)'0' + (Py_UNICODE)digit_limb_swap(&dummy, 0, b);
+}
+
+/**********************************
+ * Faster basecase multiplication *
+ **********************************/
+
+/* Here's a simple optimization for basecase multiplication, that achieves
+   over 5x speedups on some 64-bit platforms.  It uses the fact that LIMB_BASE
+   * LIMB_BASE is significantly smaller than the maximum possible value stored
+   by a double_limb_t, by accumulating the sum of several partial products at
+   a time.  This saves drastically on the number of divisions required.  It
+   also reduces the number of additions and stores/loads.
+
+   The algorithm breaks the rules about only using the primitive limb
+   operations above; it would need to be changed or removed for other
+   representations. */
+
+/* The largest number of partials that we can accumulate at once is
+   floor(2**(16*sizeof(limb_t)) / 10**(2*MAX_DIGITS)). */
+#if LIMB_DIGITS == 4
+#define MAX_PARTIALS 42  /* floor(2^32 / 10^8) */
+#elif LIMB_DIGITS == 9
+#define MAX_PARTIALS 18  /* floor(2^64 / 10^18) */
+#elif LIMB_DIGITS == 18
+#define MAX_PARTIALS 340 /* floor(2^128 / 10^36) */
+#else
+#error "unrecognised value for LIMB_DIGITS"
+#endif
+
+/* res[0:a_size+b_size] := a*b, assuming b_size <= MIN(MAX_PARTIALS, a_size).
+   This is a dropin replacement for limbs_mul. */
+
+static void
+limbs_fastmultiply_init(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+                const limb_t *b, Py_ssize_t b_size)
+{
+    double_limb_t acc = 0;
+    Py_ssize_t j, k;
+    assert(b_size <= MAX_PARTIALS && b_size <= a_size);
+    for (k=0; k<b_size; k++) {
+        for (j=0; j<=k; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = (limb_t)(acc % LIMB_BASE);
+        acc /= LIMB_BASE;
+    }
+    for (; k<a_size; k++) {
+        for (j=0; j<b_size; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = (limb_t)(acc % LIMB_BASE);
+        acc /= LIMB_BASE;
+    }
+    for (; k<a_size+b_size; k++) {
+        for (j=k+1-a_size; j<b_size; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = (limb_t)(acc % LIMB_BASE);
+        acc /= LIMB_BASE;
+    }
+    assert(acc == 0);
+}
+
+/* variant of the above:
+
+     res[0:a_size+b_size] := a*b + res[0:a_size],
+
+   assuming b_size <= MIN(MAX_PARTIALS, a_size) */
+
+static void
+limbs_fastmultiply_add(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+                const limb_t *b, Py_ssize_t b_size)
+{
+    double_limb_t acc = 0;
+    Py_ssize_t j, k;
+    assert(b_size <= MAX_PARTIALS && b_size <= a_size);
+    for (k=0; k<b_size; k++) {
+        acc += res[k];
+        for (j=0; j<=k; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = (limb_t)(acc % LIMB_BASE);
+        acc /= LIMB_BASE;
+    }
+    for (; k<a_size; k++) {
+        acc += res[k];
+        for (j=0; j<b_size; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = (limb_t)(acc % LIMB_BASE);
+        acc /= LIMB_BASE;
+    }
+    for (; k<a_size+b_size; k++) {
+        for (j=k+1-a_size; j<b_size; j++)
+            acc += (double_limb_t)a[k-j]*b[j];
+        res[k] = (limb_t)(acc % LIMB_BASE);
+        acc /= LIMB_BASE;
+    }
+    assert(acc == 0);
+}
+
+/* res[0:a_size+b_size] := a * b */
+
+static void
+limbs_fastmultiply(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+                const limb_t *b, Py_ssize_t b_size)
+{
+    /* reduce to case where a_size >= b_size */
+    if (a_size < b_size) {
+        const limb_t *temp;
+        Py_ssize_t temp_size;
+        temp = a; a = b; b = temp;
+        temp_size = a_size; a_size = b_size; b_size = temp_size;
+    }
+
+    assert(b_size <= a_size);
+    if (b_size < MAX_PARTIALS)
+        limbs_fastmultiply_init(res, a, a_size, b, b_size);
+    else {
+        limbs_fastmultiply_init(res, a, a_size, b, MAX_PARTIALS);
+        b_size -= MAX_PARTIALS;
+        b += MAX_PARTIALS;
+        res += MAX_PARTIALS;
+        while (b_size >= MAX_PARTIALS) {
+            limbs_fastmultiply_add(res, a, a_size, b, MAX_PARTIALS);
+            b_size -= MAX_PARTIALS;
+            b += MAX_PARTIALS;
+            res += MAX_PARTIALS;
+        }
+        limbs_fastmultiply_add(res, a, a_size, b, b_size);
+    }
+}
+
+#undef LIMB_BASE
+
+
 /*********************************
  * Arithmetic on arrays of limbs *
  *********************************/
+
+/* Rational approximations to log(10)/log(2), used for base conversion:
+   485/146  = 3.321917808219...
+   log2(10) = 3.321928094887...
+   2136/643 = 3.321928460342...
+
+   Note that for correctness of scale_Py_ssize_t, it's required that LOG2_10UP
+   * LOG2_10UQ * LIMB_DIGITS * PyLong_SHIFT and LOG2_10LP * LOG2_10LQ *
+   LIMB_DIGITS * PyLong_SHIFT both fit into a Py_ssize_t.  The values below
+   are okay even if LIMB_DIGITS = 19 and PyLong_SHIFT = 64.
+*/
+
+#define LOG2_10LP 485
+#define LOG2_10LQ 146
+#define LOG2_10UP 2136
+#define LOG2_10UQ 643
 
 /* Low-level functions for operating on arrays of limbs.  These functions
    don't take care of memory allocation; they assume that sufficient space is
@@ -644,6 +665,27 @@ limbs_mul1(limb_t *res, const limb_t *a, Py_ssize_t a_size, limb_t x)
     for (i=0; i < a_size; i++)
         high = limb_fmaa(res+i, a[i], x, high, LIMB_ZERO);
     return high;
+}
+
+/* multiply a by b, getting (a_size + b_size)-limb result res.  This is the
+   usual algorithm, now redundant: we use the faster limbs_fastmultiply
+   instead.  This code left in for testing and debugging purposes. */
+
+static void
+limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
+	  const limb_t *b, Py_ssize_t b_size)
+{
+	Py_ssize_t i, j;
+	limb_t hiword;
+	for (j=0; j < b_size; j++)
+		res[j] = LIMB_ZERO;
+	for (i=0; i < a_size; i++) {
+		hiword = LIMB_ZERO;
+		for (j=0; j < b_size; j++)
+			hiword = limb_fmaa(res+i+j, a[i], b[j],
+					   res[i+j], hiword);
+		res[i+j] = hiword;
+	}
 }
 
 /* divide a_size-limb number a by single limb x, giving a_size-limb quotient
@@ -824,12 +866,12 @@ limbs_as_unicode(Py_UNICODE *s, Py_ssize_t s_len, const limb_t *a)
     for (j=0; j < nlimbs; j++) {
         limb = a[j];
         for (i=0; i < LIMB_DIGITS; i++)
-            *--s = limb_to_digit(limb_rshift(&limb, limb, 1, LIMB_ZERO));
+            *--s = limb_to_wdigit(limb_rshift(&limb, limb, 1, LIMB_ZERO));
     }
     /* most significant limb */
     limb = a[nlimbs];
     for (i=0; i < ndigits; i++)
-        *--s = limb_to_digit(limb_rshift(&limb, limb, 1, LIMB_ZERO));
+        *--s = limb_to_wdigit(limb_rshift(&limb, limb, 1, LIMB_ZERO));
 
     assert(s == s_store);
 }
@@ -1166,7 +1208,7 @@ limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 
     if (a_size <= KARATSUBA_CUTOFF) {
         /* basecase multiplication */
-        limbs_mul(res, a, a_size, b, b_size);
+        limbs_fastmultiply(res, a, a_size, b, b_size);
         return;
     }
 
@@ -1276,7 +1318,7 @@ deccoeff_checksize(deccoeff *v)
     if (v_size < (MAX_DIGITS-1)/LIMB_DIGITS+1)
         small = true;
     else if (v_size == (MAX_DIGITS-1)/LIMB_DIGITS+1) {
-        topdigits = limb_msd(v->ob_limbs[v_size-1]);
+        topdigits = limb_len(v->ob_limbs[v_size-1]);
         small = topdigits <= (MAX_DIGITS-1)%LIMB_DIGITS+1;
     }
     else
@@ -1625,7 +1667,7 @@ _deccoeff_multiply_and_reduce(deccoeff *a, deccoeff *b, deccoeff *c)
     z = _deccoeff_new(a_size + b_size);
     if (z == NULL)
         return NULL;
-    limbs_mul(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
+    limbs_fastmultiply(z->ob_limbs, a->ob_limbs, a_size, b->ob_limbs, b_size);
     /* w = z % c */
     w = _deccoeff_remainder(z, c);
     Py_DECREF(z);
@@ -2141,7 +2183,7 @@ _deccoeff_length(deccoeff *v)
     v_size = Py_SIZE(v);
     if (v_size == 0)
         return 0;
-    return limb_msd(v->ob_limbs[v_size-1]) + (v_size-1) * LIMB_DIGITS;
+    return limb_len(v->ob_limbs[v_size-1]) + (v_size-1) * LIMB_DIGITS;
 }
 
 static PyObject *
@@ -2288,7 +2330,7 @@ deccoeff_str(deccoeff *v)
     while (limb_pointer < last_limb) {
         limb_value = *limb_pointer++;
         for (i=0; i < LIMB_DIGITS; i++)
-            *--p = limb_to_digit(
+            *--p = limb_to_wdigit(
                 limb_rshift(&limb_value,
                             limb_value, 1, LIMB_ZERO));
     }
@@ -2296,7 +2338,7 @@ deccoeff_str(deccoeff *v)
     limb_value = *limb_pointer;
     assert(limb_bool(limb_value));
     while (limb_bool(limb_value))
-        *--p = limb_to_digit(
+        *--p = limb_to_wdigit(
             limb_rshift(&limb_value, limb_value, 1, LIMB_ZERO));
     return str;
 }
