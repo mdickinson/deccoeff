@@ -1,6 +1,6 @@
 /*
- * This file defines a Python extension module 'deccoeff', containing two
- * classes: _Decimal and Deccoeff.
+ * 'deccoeff' is a Python extension module that exports two classes:
+ * _Decimal and Deccoeff.
  *
  * deccoeff._Decimal is a skeletal base class for the decimal.Decimal class.
  * As time goes on, the aim is to move more and more code from the Python
@@ -10,10 +10,9 @@
  * deccoeff.Deccoeff is a class implementing arbitrary-precision unsigned
  * integer arithmetic in a decimal base.  In addition to the usual arithmetic
  * operations, Deccoeff instances support slicing and element access, for
- * retrieving individual digits or sequences of digits.
- *
- * As the name suggests, Deccoeff instances are intended to be used as the
- * coefficients for _Decimal instances.
+ * retrieving individual digits or sequences of digits.  As the name suggests,
+ * Deccoeff instances are intended to be used as the coefficients for _Decimal
+ * instances.
  *
  * Author: Mark Dickinson (dickinsm@gmail.com).
  * Licensed to the PSF under a Contributor Agreement.
@@ -22,13 +21,19 @@
 #include "Python.h"
 #include "longintrepr.h"
 #include "deccoeff_config.h"
-
 #include <stddef.h>  /* for offsetof */
 
-/* We use C99s 'bool' type, particularly for carries.  So we need to include
-   stdbool.h if present, else define substitutes for bool, true and false */
+/* We use the C99 'bool' type for carries, so we need to include stdbool.h if
+   present, else define substitutes for bool, true and false.  We also need to
+   include stdint.h and inttypes.h for uint32_t and the like. */
 
-#ifdef HAVE_STDBOOL_H
+#if defined(HAVE_STDINT_H)
+#include <stdint.h>
+#endif
+#if defined(HAVE_INTTYPES_H)
+#include <inttypes.h>
+#endif
+#if defined(HAVE_STDBOOL_H)
 #  include <stdbool.h>
 #else
 #  ifndef HAVE__BOOL
@@ -40,57 +45,26 @@
 #endif
 
 /*
-  A Deccoeff instance is stored internally in base LIMB_BASE =
-  10**LIMB_DIGITS, as an array of limbs (least significant first).
-  LIMB_DIGITS is 18 if 64-bit and 128-bit integer types are available, and 9
-  if 32-bit and 64-bit integer types are available (as they should be on
-  almost all modern machines); otherwise it's 4.
+  Platform-specific defines
 
-  (It's possible to squeeze 19 decimal digits into a 128-bit unsigned integer
-  type, but that leaves little room for maneuver.  Using 18 decimal digits
-  instead makes the basic multiplication algorithm significantly faster, by
-  saving on the number of divisions necessary.)
+  A Deccoeff instance is stored in base LIMB_BASE = 10**LIMB_DIGITS as an
+  array of limbs (least significant first).  The value of LIMB_DIGITS
+  depends on what C types are available.
 
-  Here we define the various types and constants needed.
-
-  limb_t should be an integer type that can hold any integer in the range [0,
-  LIMB_BASE).  double_limb_t should be able to hold any integer in the range
-  [0, LIMB_BASE*LIMB_BASE).  Type digit_limb_t is used for base conversion
-  from base 2 to base 10 and back again and should be able to hold any
-  integer in the range [0, LIMB_BASE * PyLong_BASE).
-
-  BASEC_P/BASEC_Q is an upper bound for log(PyLong_BASE)/log(LIMB_BASE).
-  BASECI_P/BASECI_Q is an upper bound for log(LIMB_BASE)/log(PyLong_BASE).
-  These upper bounds are used for determining how much memory to allocate
-  when doing base conversion.  BASEC_P * BASEC_Q and BASECI_P * BASECI_Q
-  should fit comfortably in a Py_ssize_t.
+  limb_t is an integer type that can hold any integer in the range [0,
+  LIMB_BASE).  double_limb_t can hold any integer in [0, LIMB_BASE*LIMB_BASE).
+  Type digit_limb_t is used for Deccoeff <-> PyLong conversions and should be
+  able to hold any integer in [0, LIMB_BASE * PyLong_BASE).
 */
-
-/* Rational approximations to log(10)/log(2), used for base conversion:
-   485/146  = 3.321917808219...
-   log2(10) = 3.321928094887...
-   2136/643 = 3.321928460342...
-*/
-
-#define LOG2_10LP 485
-#define LOG2_10LQ 146
-#define LOG2_10UP 2136
-#define LOG2_10UQ 643
-
-#if defined(HAVE_STDINT_H)
-#include <stdint.h>
-#endif
-
-#if defined(HAVE_INTTYPES_H)
-#include <inttypes.h>
-#endif
 
 #if (defined(UINT64_MAX) || defined(uint64_t)) &&       \
     (defined(HAVE___UINT128_T))
 
 /* if a 128-bit unsigned integer type is available, use a 64-bit limb with 18
-   digits to a limb.  Should make this configurable, since it's quite possible
-   that a 32-bit limb is faster, even on 64-bit machines. */
+   digits to a limb.  It *is* possible to squeeze 19 decimal digits into a
+   128-bit unsigned integer type, but that leaves little room for maneuver.
+   Using 18 decimal digits instead makes the basic multiplication algorithm
+   significantly faster, by saving on the number of divisions necessary. */
 
 typedef uint64_t limb_t;
 typedef __uint128_t double_limb_t;
@@ -122,12 +96,28 @@ typedef unsigned long digit_limb_t;
 
 #endif
 
-/* powers_of_ten contains 10**0 through 10**(LIMB_DIGITS-1).
-   It's filled during module initialization. */
-static limb_t powers_of_ten[LIMB_DIGITS];
-
 #define LIMB_ZERO ((limb_t)0)
 #define LIMB_ONE ((limb_t)1)
+
+/* powers_of_ten contains 10**0 through 10**(LIMB_DIGITS-1).
+   It's filled during module initialization. */
+
+static limb_t powers_of_ten[LIMB_DIGITS];
+
+/* Rational approximations to log(10)/log(2), used for base conversion:
+   485/146  = 3.321917808219...
+   log2(10) = 3.321928094887...
+   2136/643 = 3.321928460342...
+
+   Note that for correctness of scale_Py_ssize_t, it's required that LOG2_10UP
+   * LOG2_10UQ * LIMB_DIGITS * PyLong_SHIFT and LOG2_10LP * LOG2_10LQ *
+   LIMB_DIGITS * PyLong_SHIFT both fit into a Py_ssize_t
+*/
+
+#define LOG2_10LP 485
+#define LOG2_10LQ 146
+#define LOG2_10UP 2136
+#define LOG2_10UQ 643
 
 /*
   The rest of this file is organized in three parts.  First we have primitive
@@ -152,9 +142,9 @@ static limb_t powers_of_ten[LIMB_DIGITS];
    decimal.  In that case, only this section should have to be changed; all
    following code uses only these primitive operations to operate on limbs.
 
-   In particular, later code should not assume that limbs can be operated on
-   using the usual arithmetic operators, or that they are comparable with < or
-   == (some encodings may not be monotonic, or may have redundant encodings of
+   Ideally, later code should not assume that limbs can be operated on using
+   the usual arithmetic operators, or that they are comparable with < or ==
+   (some encodings may not be monotonic, or may have redundant encodings of
    the same integer, or may not even be encoded as a C integer type).
 */
 

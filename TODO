@@ -12,6 +12,10 @@ Add check that MAX_DIGITS/LIMB_DIGITS is small enough;  twice that
  value should fit into a Py_ssize_t.
 relax MAX_DIGITS on 64-bit platforms
 make it possible to choose LIMB_DIGITS at configure time
+change default choice of LIMB_DIGITS: it's probably not wise to
+  automatically use LIMB_DIGITS = 18 when the 128-bit unsigned type is
+  available, since LIMB_DIGITS = 9 can be faster, even on a 64-bit
+  machine.
 make LIMB_DIGITS=8 a possibility, for purposes of experimentation
 make exponent a Deccoeff (first requires making Deccoeff signed).
   this should offer improvements in parsing and printing of Decimal.  OR:
@@ -28,6 +32,9 @@ improve and correct documentation; remove outdated deccoeff.txt; ReST!
 fast recursive algorithms for division, base conversion
 (fast recursive) square root
 implement div_nearest and sqrt_nearest: they're bottlenecks
+make scale_Py_ssize_t safer:  use deccoeff instead of Py_ssize_t for
+  high-precision case
+
 minor optimization opportunities:
 - in Karatsuba, accumulate all additions for middle term without
   propagating carry
@@ -42,6 +49,6 @@ minor optimization opportunities:
 
 _Decimal type
 -------------
-recode the various Decimal operations in C.  str and cmp are high
-priority
+recode the various Decimal operations in C.  str and cmp are
+particularly high priority
 
