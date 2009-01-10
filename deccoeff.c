@@ -1,24 +1,10 @@
 /*
 
 
-   Make use of preallocated 'NaN' and 'sNaN' strings.  Or possibly just 'NaN',
-   since it's returned much more frequently than 'sNaN'.
-
-   To do: add LIMB_DIGITS = 8 option, and make it possible to
-   configure LIMB_DIGITS using the configure script.
-
-   Make deccoeff_str write Unicode directly, not bytes.
-
-   Consider making exponent a Py_ssize_t, pehaps just in the case where
-   Py_ssize_t is larger than long.  Think harder about exponent and
-   coefficient length constraints, with reference to the specification.
-
    div_nearest and sqrt_nearest take a lot of time in decimal.py;
    move them here!
 
    cmp and str for _Decimal are high priority
-
-   docstrings!
 
    Use CLASS_NAME where appropriate in strings
    Add macro for _Decimal class name
@@ -31,8 +17,6 @@
    should fit into a Py_ssize_t.  Also, relax current value of
    MAX_DIGITS for 64-bit systems.
 
-   Put multiplication count in karatsuba algorithm, to check theory.
-
    If Py_DEBUG is defined, initialize newly allocated limbs to random stuff.
    Or does this already happen automatically?
 */
@@ -43,16 +27,28 @@
  * 'deccoeff' suggests, these numbers are intended to be used as the
  * coefficients for Decimal instances.
  *
- * Author: Mark Dickinson.  Licensed to the PSF under a Contributor
- * Agreement.
+ * deccoeff._Decimal is a skeletal base class for the decimal.Decimal class.
+ * As time goes on, the aim is to move more and more code from Python
+ * to C.
+ *
+ * Author: Mark Dickinson (dickinsm@gmail.com).
+ * Licensed to the PSF under a Contributor Agreement.
  */
 
 /*
  *  To do (or consider)
  *  -----
+ *  docstrings!
+ *  make it possible to choose LIMB_DIGITS at configure time
+ *  make LIMB_DIGITS=8 a possibility, for purposes of experimentation
  *  make exponent a Deccoeff (first requires making Deccoeff signed).
- *    this should offer improvements in parsing and printing of Decimal.
- *  move __str__ from Python to C
+ *    this should offer improvements in parsing and printing of Decimal.  OR:
+ *  make exponent a C Py_ssize_t (or long? or int64_t?), for speed.  Would
+ *    require some thinking about exponent and coefficient length constraints,
+ *    with reference to the specification.
+ *  move __str__ from Python to C;  for speed, C version should write
+ *    unicode directly, rather than writing bytes and then converting
+ *    from bytes to unicode.
  *  expand Deccoeff-specific tests
  *  improve and correct documentation; remove outdated deccoeff.txt; ReST!
  *  fast recursive algorithms for division, base conversion
@@ -128,14 +124,15 @@
 #if (defined(UINT64_MAX) || defined(uint64_t)) &&       \
     (defined(HAVE___UINT128_T))
 
-/* if a 128-bit unsigned integer type is available, use a 64-bit limb
-   with 18 digits to a limb ... */
+/* if a 128-bit unsigned integer type is available, use a 64-bit limb with 18
+   digits to a limb.  Should make this configurable, since it's quite possible
+   that a 32-bit limb is faster, even on 64-bit machines. */
 
 typedef uint64_t limb_t;
 typedef __uint128_t double_limb_t;
 typedef __uint128_t digit_limb_t;
 #define LIMB_DIGITS 18
-#define LIMB_MAX ((limb_t)999999999999999999)
+#define LIMB_MAX ((limb_t)999999999999999999) /* 10**LIMB_DIGITS - 1 */
 #define BASEC_P 5553
 #define BASEC_Q 22136
 #define BASECI_P 4369
