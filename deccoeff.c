@@ -518,6 +518,10 @@ limbs_fastmultiply(limb_t *res, const limb_t *a, Py_ssize_t a_size,
  * Arithmetic on arrays of limbs *
  *********************************/
 
+/* Low-level functions for operating on arrays of limbs.  These functions
+   don't take care of memory allocation; they all assume that sufficient space
+   is provided for their results. */
+
 /* Rational approximations to log(10)/log(2), used for base conversion:
    485/146  = 3.321917808219...
    log2(10) = 3.321928094887...
@@ -533,10 +537,6 @@ limbs_fastmultiply(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 #define LOG2_10LQ 146
 #define LOG2_10UP 2136
 #define LOG2_10UQ 643
-
-/* Low-level functions for operating on arrays of limbs.  These functions
-   don't take care of memory allocation; they assume that sufficient space is
-   provided for their results. */
 
 /* add n-limb numbers a and b, producing an n-limb result res and a carry */
 
@@ -590,7 +590,7 @@ limbs_decc(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
 }
 
 /* subtract limbs from zero, with borrow.  Equivalent to the nines' complement
-   if carry == true on input, and the ten's complement otherwise. */
+   of a if carry == true on input, and the ten's complement otherwise. */
 
 static bool
 limbs_cmpl(limb_t *res, const limb_t *a, Py_ssize_t a_size, bool carry)
@@ -688,7 +688,8 @@ limbs_mul(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 }
 
 /* divide a_size-limb number a by single limb x, giving a_size-limb quotient
-   res and returning the (single limb) remainder */
+   res and returning the (single limb) remainder.  If the input high is
+   nonzero, it's treated as digit a_size of a. */
 
 static limb_t
 limbs_div1(limb_t *res, const limb_t *a, Py_ssize_t a_size,
@@ -792,7 +793,7 @@ limbs_lshift(limb_t *res, const limb_t *a, Py_ssize_t a_size, Py_ssize_t n)
         res[n_limbs + a_size] = high;
 }
 
-/* shift a_size-limb number a right n digits (not limbs!).  i.e., divide by
+/* shift a_size-limb number a right n *digits* (not limbs!).  i.e., divide by
    10**n.  n should satisfy 0 <= n <= LIMB_DIGITS*a_size, and the result res
    has a_size - n/LIMB_DIGITS limbs. */
 
