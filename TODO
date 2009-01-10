@@ -8,6 +8,7 @@ docstrings!
 
 Deccoeff type
 -------------
+relax MAX_DIGITS on 64-bit platforms
 make it possible to choose LIMB_DIGITS at configure time
 make LIMB_DIGITS=8 a possibility, for purposes of experimentation
 make exponent a Deccoeff (first requires making Deccoeff signed).

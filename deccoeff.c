@@ -5,8 +5,7 @@
    log(2**15)/log(10); scale as appropriate.
 
    Add check that MAX_DIGITS/LIMB_DIGITS is small enough:  twice it
-   should fit into a Py_ssize_t.  Also, relax current value of
-   MAX_DIGITS for 64-bit systems.
+   should fit into a Py_ssize_t.
 
 */
 
@@ -16,7 +15,8 @@
  *
  * deccoeff._Decimal is a skeletal base class for the decimal.Decimal class.
  * As time goes on, the aim is to move more and more code from the Python
- * decimal.py file to the _Decimal class.
+ * decimal.py file to the _Decimal class, and eventually rename _Decimal
+ * to Decimal.
  *
  * deccoeff.Deccoeff is a class implementing arbitrary-precision unsigned
  * integer arithmetic in a decimal base.  In addition to the usual arithmetic
@@ -2422,7 +2422,7 @@ __Decimal_new(PyTypeObject *type, dec_flag_t flags, deccoeff *coeff,
 {
     _Decimal *self;
 
-    /* sanity check on flags */
+    /* sanity checks */
     assert(
         ((flags | 1) == (FINITE_FLAGS | 1)) ||    /* finite (poss. zero) */
         ((flags | 1) == (INF_FLAGS | 1)) ||       /* infinity */
@@ -3014,11 +3014,11 @@ static PyMethodDef _Decimal_methods[] = {
 static PyGetSetDef _Decimal_getsetters[] = {
     {"_sign", (getter)_Decimal_getsign, NULL, "sign", NULL},
     {"_int", (getter)_Decimal_getcoeff, NULL,
-     "coefficient of a non-infinite _Decimal", NULL},
+     "coefficient (invalid for NaNs and infinites)", NULL},
     {"_exp", (getter)_Decimal_getexp, NULL,
-     "exponent of a finite _Decimal", NULL},
+     "exponent (invalid for NaNs and infinities)", NULL},
     {"_payload", (getter)_Decimal_getpayload, NULL,
-     "payload of a NaN", NULL},
+     "payload of a NaN (invalid for non-NaNs)", NULL},
     {"_is_special", (getter)_Decimal_getspecial, NULL,
      "True for infinities and NaNs, false otherwise", NULL},
     {NULL}
