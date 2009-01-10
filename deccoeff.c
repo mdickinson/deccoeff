@@ -2498,12 +2498,6 @@ static PyTypeObject deccoeff_DeccoeffType = {
 /* note that FINITE_FLAGS < INF_FLAGS < SNAN_FLAGS < QNAN_FLAGS,
    corresponding to the standard total ordering of Decimals */
 
-/* the following four values will be initialized at module startup */
-static PyObject *inf_string;
-static PyObject *ninf_string;
-static PyObject *nan_string;
-static PyObject *snan_string;
-
 typedef int dec_flag_t;
 typedef Py_ssize_t exp_t;
 
@@ -3235,21 +3229,6 @@ PyInit_deccoeff(void)
                                (PyObject *) &deccoeff_DeccoeffType);
     if (check == -1)
         return NULL;
-
-    /* Cache some commonly used strings */
-    inf_string = PyUnicode_FromString("Infinity");
-    if (inf_string == NULL)
-        return NULL;
-    ninf_string = PyUnicode_FromString("-Infinity");
-    if (ninf_string == NULL)
-        return NULL;
-    nan_string = PyUnicode_FromString("NaN");
-    if (nan_string == NULL)
-        return NULL;
-    snan_string = PyUnicode_FromString("sNaN");
-    if (snan_string == NULL)
-        return NULL;
-
 
     Py_INCREF(&deccoeff__DecimalType);
     check = PyModule_AddObject(m, "_Decimal",
