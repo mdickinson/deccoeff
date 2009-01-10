@@ -1,8 +1,5 @@
 /*
 
-
-   Add macro for _Decimal class name
-
    Make code less dependent on LIMB_DIGITS: should just need two
    continued fraction approximations (upper and lower) to
    log(2**15)/log(10); scale as appropriate.
@@ -2380,6 +2377,9 @@ static PyTypeObject deccoeff_DeccoeffType = {
  * _Decimal type *
  *****************/
 
+/* class name */
+#define DECIMAL_NAME "_Decimal"
+
 /* A finite decimal object needs a sign, a coefficient and an exponent.  An
    infinity has a sign and nothing more; the coefficient and exponent are
    ignored.  A (quiet or signalling) nan has a sign, and may carry additional
@@ -2497,7 +2497,7 @@ _Decimal_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     int sign;
     static char *kwlist[] = {"sign", "coeff", "exp", 0};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "iOO:" "_Decimal", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "iOO:" DECIMAL_NAME, kwlist,
                                      &sign, &ocoeff, &oexp))
         return NULL;
     if (!(sign == 0 || sign == 1)) {
@@ -2762,7 +2762,7 @@ _Decimal_finite(PyTypeObject *cls, PyObject *args)
     PyLongObject *exp;
     int sign;
 
-    if (!PyArg_ParseTuple(args, "iOO:" "_Decimal", &sign, &ocoeff, &oexp))
+    if (!PyArg_ParseTuple(args, "iOO:" DECIMAL_NAME, &sign, &ocoeff, &oexp))
         return NULL;
     if (ocoeff->ob_type != &deccoeff_DeccoeffType) {
         PyErr_SetString(PyExc_TypeError, "coeff should have type " CLASS_NAME);
@@ -2789,7 +2789,7 @@ _Decimal_qNaN(PyTypeObject *cls, PyObject *args) {
     deccoeff *payload;
     int sign;
 
-    if (!PyArg_ParseTuple(args, "iO:" "_Decimal", &sign, &opayload))
+    if (!PyArg_ParseTuple(args, "iO:" DECIMAL_NAME, &sign, &opayload))
         return NULL;
     if (opayload->ob_type != &deccoeff_DeccoeffType) {
         PyErr_SetString(PyExc_TypeError, "payload should have type " CLASS_NAME);
@@ -2811,7 +2811,7 @@ _Decimal_sNaN(PyTypeObject *cls, PyObject *args) {
     deccoeff *payload;
     int sign;
 
-    if (!PyArg_ParseTuple(args, "iO:" "_Decimal", &sign, &opayload))
+    if (!PyArg_ParseTuple(args, "iO:" DECIMAL_NAME, &sign, &opayload))
         return NULL;
     if (opayload->ob_type != &deccoeff_DeccoeffType) {
         PyErr_SetString(PyExc_TypeError, "payload should have type " CLASS_NAME);
@@ -2831,7 +2831,7 @@ static PyObject *
 _Decimal_inf(PyTypeObject *cls, PyObject *args) {
     int sign;
 
-    if (!PyArg_ParseTuple(args, "i:" "_Decimal", &sign))
+    if (!PyArg_ParseTuple(args, "i:" DECIMAL_NAME, &sign))
         return NULL;
     if (!(sign == 0 || sign == 1)) {
         PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
@@ -3026,7 +3026,7 @@ static PyGetSetDef _Decimal_getsetters[] = {
 
 static PyTypeObject deccoeff__DecimalType = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
-    MODULE_NAME "." "_Decimal",             /* tp_name */
+    MODULE_NAME "." DECIMAL_NAME,             /* tp_name */
     sizeof(_Decimal),                       /* tp_basicsize */
     0,                          /* tp_itemsize */
     _Decimal_dealloc,                       /* tp_dealloc */
@@ -3113,7 +3113,7 @@ PyInit_deccoeff(void)
         return NULL;
 
     Py_INCREF(&deccoeff__DecimalType);
-    check = PyModule_AddObject(m, "_Decimal",
+    check = PyModule_AddObject(m, DECIMAL_NAME,
                                (PyObject *) &deccoeff__DecimalType);
     if (check == -1)
         return NULL;
