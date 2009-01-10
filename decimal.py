@@ -572,7 +572,6 @@ class Decimal(_Decimal, _numbers.Real):
         # REs insist on real strings, so we can too.
         if isinstance(value, str):
             try:
-                print("cls is ",cls)
                 m = cls.from_str(value.strip())
             except ValueError:
                 if context is None:
