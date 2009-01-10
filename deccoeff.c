@@ -1,9 +1,6 @@
 /*
 
 
-   div_nearest and sqrt_nearest take a lot of time in decimal.py;
-   move them here!
-
    cmp and str for _Decimal are high priority
 
    Use CLASS_NAME where appropriate in strings
@@ -54,7 +51,7 @@
  *  fast recursive algorithms for division, base conversion
  *  (fast recursive) square root
  *  fix tp_basicsize and tp_itemsize calculations
- *
+ *  implement div_nearest and sqrt_nearest: they're bottlenecks
  *  minor optimization opportunities:
  *  - in Karatsuba, accumulate all additions for middle term without
  *    propagating carry
@@ -72,8 +69,8 @@
 #include "longintrepr.h"
 #include "deccoeff_config.h"
 
-/* We use C99s 'bool' type for carries.  So we need to include stdbool.h if
-   present, else define substitutes for bool, true and false */
+/* We use C99s 'bool' type, particularly for carries.  So we need to include
+   stdbool.h if present, else define substitutes for bool, true and false */
 
 #ifdef HAVE_STDBOOL_H
 #  include <stdbool.h>
@@ -141,8 +138,8 @@ typedef __uint128_t digit_limb_t;
 #elif (defined(UINT32_MAX) || defined(uint32_t)) &&     \
     (defined(UINT64_MAX) || defined(uint64_t))
 
-/* else use uint32_t for limb_t and uint64_t for double_limb_t if available,
-   with 9 digits to a limb... */
+/* ... else use uint32_t for limb_t and uint64_t for double_limb_t if
+   available, with 9 digits to a limb... */
 
 typedef uint32_t limb_t;
 typedef uint64_t double_limb_t;
