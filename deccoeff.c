@@ -108,8 +108,8 @@ typedef __uint128_t digit_limb_t;
 #elif (defined(UINT32_MAX) || defined(uint32_t)) &&     \
     (defined(UINT64_MAX) || defined(uint64_t))
 
-/* ... else use uint32_t for limb_t and uint64_t for double_limb_t if
-   available, with 9 digits to a limb... */
+/* ... else if uint32_t and uint64_t are available, use those,
+   with 9 digits to a limb ... */
 
 typedef uint32_t limb_t;
 typedef uint64_t double_limb_t;
@@ -129,7 +129,10 @@ typedef unsigned long digit_limb_t;
 
 #endif
 
+/* powers_of_ten contains 10**0 through 10**(LIMB_DIGITS-1).
+   It's filled during module initialization. */
 static limb_t powers_of_ten[LIMB_DIGITS];
+
 #define LIMB_ZERO ((limb_t)0)
 #define LIMB_ONE ((limb_t)1)
 
