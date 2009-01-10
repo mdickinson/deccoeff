@@ -1,7 +1,6 @@
 /*
 
 
-   Use CLASS_NAME where appropriate in strings
    Add macro for _Decimal class name
 
    Make code less dependent on LIMB_DIGITS: should just need two
@@ -1309,7 +1308,7 @@ deccoeff_checksize(deccoeff *v)
         return v;
     Py_DECREF(v);
     PyErr_SetString(PyExc_OverflowError,
-                    "Deccoeff instance has too many digits");
+                    CLASS_NAME " instance has too many digits");
     return NULL;
 }
 
@@ -1862,7 +1861,7 @@ deccoeff_lshift(PyObject *v, PyObject *b) {
         return (PyObject *)deccoeff_zero();
     if (n >= MAX_DIGITS) {
         PyErr_SetString(PyExc_OverflowError,
-                        "Deccoeff instance has too many digits");
+                        CLASS_NAME " instance has too many digits");
         return NULL;
     }
     z = _deccoeff_new(a_size + (n+LIMB_DIGITS-1) / LIMB_DIGITS);
@@ -2075,14 +2074,14 @@ deccoeff_from_PyLong(PyLongObject *a)
     a_size = Py_SIZE(a);
     if (a_size < 0) {
         PyErr_SetString(PyExc_OverflowError,
-                        "Can't convert negative integer to Deccoeff");
+                        "Can't convert negative integer to " CLASS_NAME);
         return NULL;
     }
 
     z_size = scale_Py_ssize_t(a_size, BASEC_P, BASEC_Q);
     if (z_size == -1)
         PyErr_SetString(PyExc_OverflowError,
-                        "Overflow in int to Deccoeff conversion\n");
+                        "Overflow in int to " CLASS_NAME " conversion\n");
     z = _deccoeff_new(z_size);
     if (z==NULL)
         return NULL;
@@ -2100,7 +2099,7 @@ deccoeff_long(deccoeff *a)
     z_size = scale_Py_ssize_t(a_size, BASECI_P, BASECI_Q);
     if (z_size == -1)
         PyErr_SetString(PyExc_OverflowError,
-                        "Overflow in Deccoeff to int conversion\n");
+                        "Overflow in " CLASS_NAME " to int conversion\n");
     z = _PyLong_New(z_size);
     if (z == NULL)
         return NULL;
@@ -2535,7 +2534,7 @@ _Decimal_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return NULL;
     }
     if (ocoeff->ob_type != &deccoeff_DeccoeffType) {
-        PyErr_SetString(PyExc_TypeError, "coeff should have type Deccoeff");
+        PyErr_SetString(PyExc_TypeError, "coeff should have type " CLASS_NAME);
         return NULL;
     }
     coeff = (deccoeff *)ocoeff;
@@ -2795,7 +2794,7 @@ _Decimal_finite(PyTypeObject *cls, PyObject *args)
     if (!PyArg_ParseTuple(args, "iOO:" "_Decimal", &sign, &ocoeff, &oexp))
         return NULL;
     if (ocoeff->ob_type != &deccoeff_DeccoeffType) {
-        PyErr_SetString(PyExc_TypeError, "coeff should have type Deccoeff");
+        PyErr_SetString(PyExc_TypeError, "coeff should have type " CLASS_NAME);
         return NULL;
     }
     coeff = (deccoeff *)ocoeff;
@@ -2822,7 +2821,7 @@ _Decimal_qNaN(PyTypeObject *cls, PyObject *args) {
     if (!PyArg_ParseTuple(args, "iO:" "_Decimal", &sign, &opayload))
         return NULL;
     if (opayload->ob_type != &deccoeff_DeccoeffType) {
-        PyErr_SetString(PyExc_TypeError, "payload should have type Deccoeff");
+        PyErr_SetString(PyExc_TypeError, "payload should have type " CLASS_NAME);
         return NULL;
     }
     payload = (deccoeff *)opayload;
@@ -2844,7 +2843,7 @@ _Decimal_sNaN(PyTypeObject *cls, PyObject *args) {
     if (!PyArg_ParseTuple(args, "iO:" "_Decimal", &sign, &opayload))
         return NULL;
     if (opayload->ob_type != &deccoeff_DeccoeffType) {
-        PyErr_SetString(PyExc_TypeError, "payload should have type Deccoeff");
+        PyErr_SetString(PyExc_TypeError, "payload should have type " CLASS_NAME);
         return NULL;
     }
     payload = (deccoeff *)opayload;
