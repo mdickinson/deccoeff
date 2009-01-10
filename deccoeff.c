@@ -1,9 +1,5 @@
 /*
 
-   Make code less dependent on LIMB_DIGITS: should just need two
-   continued fraction approximations (upper and lower) to
-   log(2**15)/log(10); scale as appropriate.
-
    Add check that MAX_DIGITS/LIMB_DIGITS is small enough:  twice it
    should fit into a Py_ssize_t.
 
@@ -77,6 +73,17 @@
   should fit comfortably in a Py_ssize_t.
 */
 
+/* Rational approximations to log(10)/log(2), used for base conversion:
+   485/146  = 3.321917808219...
+   log2(10) = 3.321928094887...
+   2136/643 = 3.321928460342...
+*/
+
+#define LOG2_10LP 485
+#define LOG2_10LQ 146
+#define LOG2_10UP 2136
+#define LOG2_10UQ 643
+
 #if defined(HAVE_STDINT_H)
 #include <stdint.h>
 #endif
@@ -97,10 +104,6 @@ typedef __uint128_t double_limb_t;
 typedef __uint128_t digit_limb_t;
 #define LIMB_DIGITS 18
 #define LIMB_MAX ((limb_t)999999999999999999) /* 10**LIMB_DIGITS - 1 */
-#define BASEC_P 5553
-#define BASEC_Q 22136
-#define BASECI_P 4369
-#define BASECI_Q 1096
 
 #elif (defined(UINT32_MAX) || defined(uint32_t)) &&     \
     (defined(UINT64_MAX) || defined(uint64_t))
@@ -113,10 +116,6 @@ typedef uint64_t double_limb_t;
 typedef uint64_t digit_limb_t;
 #define LIMB_DIGITS 9
 #define LIMB_MAX ((limb_t)999999999)  /* 10**LIMB_DIGITS - 1 */
-#define BASEC_P 5553
-#define BASEC_Q 11068
-#define BASECI_P 4369
-#define BASECI_Q 2192
 
 #else
 
@@ -127,10 +126,6 @@ typedef unsigned long double_limb_t;
 typedef unsigned long digit_limb_t;
 #define LIMB_DIGITS 4
 #define LIMB_MAX ((limb_t)9999)
-#define BASEC_P 1717
-#define BASEC_Q 1521
-#define BASECI_P 5890
-#define BASECI_Q 6649
 
 #endif
 
@@ -2074,8 +2069,9 @@ deccoeff_from_PyLong(PyLongObject *a)
                         "Can't convert negative integer to " CLASS_NAME);
         return NULL;
     }
-
-    z_size = scale_Py_ssize_t(a_size, BASEC_P, BASEC_Q);
+    z_size = scale_Py_ssize_t(a_size,
+                              LOG2_10LQ * PyLong_SHIFT,
+                              LOG2_10LP * LIMB_DIGITS);
     if (z_size == -1)
         PyErr_SetString(PyExc_OverflowError,
                         "Overflow in int to " CLASS_NAME " conversion\n");
@@ -2093,7 +2089,9 @@ deccoeff_long(deccoeff *a)
     PyLongObject *z;
 
     a_size = Py_SIZE(a);
-    z_size = scale_Py_ssize_t(a_size, BASECI_P, BASECI_Q);
+    z_size = scale_Py_ssize_t(a_size,
+                              LOG2_10UP * LIMB_DIGITS,
+                              LOG2_10UQ * PyLong_SHIFT);
     if (z_size == -1)
         PyErr_SetString(PyExc_OverflowError,
                         "Overflow in " CLASS_NAME " to int conversion\n");
