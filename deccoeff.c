@@ -2414,7 +2414,7 @@ typedef struct {
 static PyTypeObject deccoeff__DecimalType;
 
 /* create new _Decimal (or instance of a subclass of _Decimal); no
-   type-checking or conversion---just allocate memory and fill the slots */
+   validation or conversion---just allocate memory and fill the slots */
 
 static _Decimal *
 __Decimal_new(PyTypeObject *type, dec_flag_t flags, deccoeff *coeff,
@@ -2429,6 +2429,7 @@ __Decimal_new(PyTypeObject *type, dec_flag_t flags, deccoeff *coeff,
         ((flags | 1) == (QNAN_FLAGS | 1)) ||      /* quiet nan */
         ((flags | 1) == (SNAN_FLAGS | 1)));       /* signaling nan */
 
+    /* incref coefficient and exponent, but only if they're non-NULL */
     if (flags & DEC_FLAGS_INF)
         assert(coeff == NULL);
     else {
