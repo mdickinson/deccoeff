@@ -1,20 +1,4 @@
 /*
-   get rid of __len__, replace by digit_length (or similar)
-
-   Limits for _Decimal:
-     the length of a coefficient is limited to 1_000_000_000
-
-     note that in terms of Emin, Emax, prec as in the standard:
-      - if clamping is not in effect, E must support exponents in the range
-        [Emin - prec + 1, Emax]
-      - if clamping is in effect, E must support exponents in the range
-        [Emin - prec + 1, Emax - prec + 1]
-      - the standard requires Emin = 1 - Emax
-
-    So we could take Emax = 1000000000, Emin = -999999999
-    and then the raw exponent ...
-
-
 
 
    Make use of preallocated 'NaN' and 'sNaN' strings.  Or possibly just 'NaN',
@@ -38,8 +22,6 @@
 
    Use CLASS_NAME where appropriate in strings
    Add macro for _Decimal class name
-
-   Add _Decimal type...
 
    Fill powers of ten table dynamically
 
@@ -68,9 +50,10 @@
  */
 
 /*
- *  To do
+ *  To do (or consider)
  *  -----
- *  make exponent a deccoeff (requires making deccoeff signed)
+ *  make exponent a Deccoeff (first requires making Deccoeff signed).
+ *    this should offer improvements in parsing and printing of Decimal.
  *  move __str__ from Python to C
  *  expand Deccoeff-specific tests
  *  improve and correct documentation; remove outdated deccoeff.txt; ReST!
@@ -89,18 +72,14 @@
  *    one.
  *  - in multiplication, should separate out the first step, to avoid
  *    needlessly adding zeros.
- *  - in multiplication, can amalgamate addition of products and save
- *    on divisions.  If LIMB_DIGITS = 9, then can add up to 18 partial
- *    products.  If LIMB_DIGITS = 4, can add up to 42.  This would
- *    likely produce significant speedup.
  */
 
 #include "Python.h"
 #include "longintrepr.h"
 #include "deccoeff_config.h"
 
-/* include stdbool.h if present, else define substitutes for
-   bool, true and false */
+/* We use C99s 'bool' type for carries.  So we need to include stdbool.h if
+   present, else define substitutes for bool, true and false */
 
 #ifdef HAVE_STDBOOL_H
 #  include <stdbool.h>
