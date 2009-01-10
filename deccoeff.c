@@ -173,7 +173,6 @@ typedef unsigned long digit_limb_t;
 static limb_t powers_of_ten[LIMB_DIGITS];
 #define LIMB_ZERO ((limb_t)0)
 #define LIMB_ONE ((limb_t)1)
-#define LIMB_TWO ((limb_t)2)
 
 /*
   The rest of this file is organized in three parts.  First we have primitive
@@ -1736,8 +1735,7 @@ _deccoeff_power(deccoeff *a, deccoeff *bb, deccoeff *c)
         goto fail2;
     while (true) {
         /* invariant quantity: apow**b*acc == a**bb. */
-        lowbit = limbs_div1(b_limbs, b_limbs, b_size, LIMB_ZERO,
-                            LIMB_TWO);
+        lowbit = limbs_div1(b_limbs, b_limbs, b_size, LIMB_ZERO, 2);
         if (!limb_bool(b_limbs[b_size-1]))
             b_size--;
         if (limb_bool(lowbit)) {
