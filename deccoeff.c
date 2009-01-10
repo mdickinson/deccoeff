@@ -2476,42 +2476,12 @@ _Decimal_dealloc(PyObject *self)
     self->ob_type->tp_free(self);
 }
 
-/* internal function to create a new finite _Decimal instance, given sign,
-   coefficient and exponent.  No type checking or conversion. */
+/* Macros to create finite, infinite, qnan, and snan _Decimal instances */
 
-static _Decimal *
-__Decimal_finite(PyTypeObject *type, int sign, deccoeff *coeff,
-                 PyLongObject *exp) {
-    assert(sign == 0 || sign == 1);
-    return __Decimal_new(type, sign, coeff, exp);
-}
-
-/* internal function to create an infinity with the given sign */
-
-static _Decimal *
-__Decimal_inf(PyTypeObject *type, int sign)
-{
-    assert(sign == 0 || sign == 1);
-    return __Decimal_new(type, sign | INF_FLAGS, NULL, NULL);
-}
-
-/* internal function to create a qNaN with the given sign, payload */
-
-static _Decimal *
-__Decimal_qnan(PyTypeObject *type, int sign, deccoeff *payload)
-{
-    assert(sign == 0 || sign == 1);
-    return __Decimal_new(type, sign | QNAN_FLAGS, payload, NULL);
-}
-
-/* internal function to create a sNaN with the given sign, payload */
-
-static _Decimal *
-__Decimal_snan(PyTypeObject *type, int sign, deccoeff *payload)
-{
-    assert(sign == 0 || sign == 1);
-    return __Decimal_new(type, sign | SNAN_FLAGS, payload, NULL);
-}
+#define FINITE_DECIMAL(type, sign, coeff, exp) (__Decimal_new(type, sign, coeff, exp))
+#define INF_DECIMAL(type, sign) (__Decimal_new(type, sign | INF_FLAGS, NULL, NULL))
+#define QNAN_DECIMAL(type, sign, payload) (__Decimal_new(type, sign | QNAN_FLAGS, payload, NULL))
+#define SNAN_DECIMAL(type, sign, payload) (__Decimal_new(type, sign | SNAN_FLAGS, payload, NULL))
 
 /* create a new finite _Decimal instance */
 
@@ -2544,7 +2514,7 @@ _Decimal_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return NULL;
     }
     exp = (PyLongObject *)oexp;
-    return (PyObject *)__Decimal_finite(type, sign, coeff, exp);
+    return (PyObject *)FINITE_DECIMAL(type, sign, coeff, exp);
 }
 
 /* Create a _Decimal instance directly from a string; classmethod */
@@ -2600,7 +2570,7 @@ _Decimal_from_str(PyTypeObject *cls, PyObject *arg)
 
         coeff = _deccoeff_from_unicode_and_size(coeff_start, s-coeff_start);
         if (coeff != NULL) {
-            result = (PyObject *)__Decimal_qnan(cls, sign, coeff);
+            result = (PyObject *)QNAN_DECIMAL(cls, sign, coeff);
             Py_DECREF(coeff);
         }
         break;
@@ -2628,7 +2598,7 @@ _Decimal_from_str(PyTypeObject *cls, PyObject *arg)
 
         coeff = _deccoeff_from_unicode_and_size(coeff_start, s-coeff_start);
         if (coeff != NULL) {
-            result = (PyObject *)__Decimal_snan(cls, sign, coeff);
+            result = (PyObject *)SNAN_DECIMAL(cls, sign, coeff);
             Py_DECREF(coeff);
         }
         break;
@@ -2667,7 +2637,7 @@ _Decimal_from_str(PyTypeObject *cls, PyObject *arg)
         if (s != s_end)
             goto parse_error;
 
-        result = (PyObject *)__Decimal_inf(cls, sign);
+        result = (PyObject *)INF_DECIMAL(cls, sign);
         break;
     default:
         /* numeric part: at least one digit, with an optional decimal point */
@@ -2768,7 +2738,7 @@ _Decimal_from_str(PyTypeObject *cls, PyObject *arg)
             return NULL;
         }
 
-        result = (PyObject *)__Decimal_finite(cls, sign, coeff,
+        result = (PyObject *)FINITE_DECIMAL(cls, sign, coeff,
                                               (PyLongObject *)exp);
         Py_DECREF(coeff);
         Py_DECREF(exp);
@@ -2808,7 +2778,7 @@ _Decimal_finite(PyTypeObject *cls, PyObject *args)
         PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
         return NULL;
     }
-    return (PyObject *)__Decimal_finite(cls, sign, coeff, exp);
+    return (PyObject *)FINITE_DECIMAL(cls, sign, coeff, exp);
 }
 
 /* Create a qNaN; classmethod */
@@ -2830,7 +2800,7 @@ _Decimal_qNaN(PyTypeObject *cls, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
         return NULL;
     }
-    return (PyObject *)__Decimal_qnan(cls, sign, payload);
+    return (PyObject *)QNAN_DECIMAL(cls, sign, payload);
 }
 
 /* Create an sNaN; classmethod */
@@ -2852,7 +2822,7 @@ _Decimal_sNaN(PyTypeObject *cls, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
         return NULL;
     }
-    return (PyObject *)__Decimal_snan(cls, sign, payload);
+    return (PyObject *)SNAN_DECIMAL(cls, sign, payload);
 }
 
 /* Create an infinity; classmethod */
@@ -2867,7 +2837,7 @@ _Decimal_inf(PyTypeObject *cls, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "sign should be 0 or 1");
         return NULL;
     }
-    return (PyObject *)__Decimal_inf(cls, sign);
+    return (PyObject *)INF_DECIMAL(cls, sign);
 }
 
 /* Return the sign of any _Decimal instance */
