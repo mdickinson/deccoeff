@@ -68,6 +68,8 @@
 #include "longintrepr.h"
 #include "deccoeff_config.h"
 
+#include <stddef.h>  /* for offsetof */
+
 /* We use C99s 'bool' type, particularly for carries.  So we need to include
    stdbool.h if present, else define substitutes for bool, true and false */
 
