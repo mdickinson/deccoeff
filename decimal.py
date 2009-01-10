@@ -584,15 +584,15 @@ class Decimal(_Decimal, _numbers.Real):
         if isinstance(value, _Decimal):
             if value._is_special:
                 if value.is_infinite():
-                    return Decimal._inf(value._sign)
+                    return cls._inf(value._sign)
                 elif value.is_qnan():
-                    return Decimal._qnan(value._sign, value._payload)
+                    return cls._qnan(value._sign, value._payload)
                 elif value.is_snan():
-                    return Decimal._snan(value._sign, value._payload)
+                    return cls._snan(value._sign, value._payload)
                 else:
                     assert False, "never get here"
             else:
-                return Decimal._finite(value._sign, value._int, value._exp)
+                return cls._finite(value._sign, value._int, value._exp)
 
         # From an integer
         if isinstance(value, int):
@@ -601,7 +601,7 @@ class Decimal(_Decimal, _numbers.Real):
             else:
                 _sign = 1
             _int = Deccoeff(abs(value))
-            return Decimal._finite(_sign, _int, 0)
+            return cls._finite(_sign, _int, 0)
 
         # tuple/list conversion (possibly from as_tuple())
         if isinstance(value, (list,tuple)):
@@ -617,7 +617,7 @@ class Decimal(_Decimal, _numbers.Real):
             _sign = value[0]
             if value[2] == 'F':
                 # infinity: value[1] is ignored
-                return Decimal._inf(_sign)
+                return cls._inf(_sign)
             else:
                 # process and validate the digits in value[1]
                 digits = []
@@ -630,11 +630,11 @@ class Decimal(_Decimal, _numbers.Real):
                                          "0 through 9.")
                 _int = Deccoeff(''.join(digits))
                 if value[2] == 'n':
-                    return Decimal._qnan(_sign, _int)
+                    return cls._qnan(_sign, _int)
                 elif value[2] == 'N':
-                    return Decimal._snan(_sign, _int)
+                    return cls._snan(_sign, _int)
                 elif isinstance(value[2], int):
-                    return Decimal._finite(_sign, _int, value[2])
+                    return cls._finite(_sign, _int, value[2])
                 else:
                     raise ValueError("The third value in the tuple must "
                                      "be an integer, or one of the "
