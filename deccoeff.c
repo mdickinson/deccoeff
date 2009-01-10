@@ -50,7 +50,6 @@
  *  improve and correct documentation; remove outdated deccoeff.txt; ReST!
  *  fast recursive algorithms for division, base conversion
  *  (fast recursive) square root
- *  fix tp_basicsize and tp_itemsize calculations
  *  implement div_nearest and sqrt_nearest: they're bottlenecks
  *  minor optimization opportunities:
  *  - in Karatsuba, accumulate all additions for middle term without
@@ -1276,9 +1275,8 @@ limbs_mul_dispatch(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 
 #define MAX_DIGITS 1000000000
 
-/* N.B. We really want ob_limbs[0] in this definition, but that isn't
-   standards-compliant C (though gcc permits it).  This makes
-   computing tp_basicsize a little tricky. */
+/* We really want ob_limbs[0] in the definition of deccoeff, but that's not
+   standards-compliant C.  Use offsetof to get tp_basicsize. */
 
 typedef struct {
     PyObject_VAR_HEAD
@@ -1286,7 +1284,7 @@ typedef struct {
 } deccoeff;
 
 #define DECCOEFF_ITEMSIZE sizeof(limb_t)
-#define DECCOEFF_BASICSIZE sizeof(deccoeff)
+#define DECCOEFF_BASICSIZE (offsetof(deccoeff, ob_limbs))
 
 static PyTypeObject deccoeff_DeccoeffType;
 
@@ -1295,6 +1293,7 @@ static PyTypeObject deccoeff_DeccoeffType;
 static deccoeff *
 _deccoeff_new(Py_ssize_t size)
 {
+    /* XXX check for overflow */
     return PyObject_NEW_VAR(deccoeff, &deccoeff_DeccoeffType, size);
 }
 
