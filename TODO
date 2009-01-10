@@ -1,0 +1,42 @@
+ To do (or consider)
+ ===================
+
+ General
+ -------
+ docstrings!
+
+ Deccoeff type
+ -------------
+ make it possible to choose LIMB_DIGITS at configure time
+ make LIMB_DIGITS=8 a possibility, for purposes of experimentation
+ make exponent a Deccoeff (first requires making Deccoeff signed).
+   this should offer improvements in parsing and printing of Decimal.  OR:
+ make exponent a C Py_ssize_t (or long? or int64_t?), for speed.  Would
+   require some thinking about exponent and coefficient length constraints,
+   with reference to the specification.  Unless there's a huge speed
+   advantage from this, I'm more inclined to leave exponents being
+   arbitrary precision integers.
+ move __str__ from Python to C;  for speed, C version should write
+   unicode directly, rather than writing bytes and then converting
+   from bytes to unicode.
+ expand Deccoeff-specific tests
+ improve and correct documentation; remove outdated deccoeff.txt; ReST!
+ fast recursive algorithms for division, base conversion
+ (fast recursive) square root
+ implement div_nearest and sqrt_nearest: they're bottlenecks
+ minor optimization opportunities:
+ - in Karatsuba, accumulate all additions for middle term without
+   propagating carry
+ - make limb_error checks only for debug build
+ - limbs_lshift and limbs_rshift could be faster when the shift count
+   is a multiple of LIMB_DIGITS.
+ - when LIMB_DIGITS == 9, base conversion could be a factor of 2 faster
+   (asymptotically) by operating on two PyLong_Digits at a time instead of
+   one.
+ - in multiplication, should separate out the first step, to avoid
+   needlessly adding zeros.
+
+ _Decimal type
+ -------------
+ - str and cmp are high priority for recoding in C
+

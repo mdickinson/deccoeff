@@ -1,8 +1,6 @@
 /*
 
 
-   cmp and str for _Decimal are high priority
-
    Use CLASS_NAME where appropriate in strings
    Add macro for _Decimal class name
 
@@ -14,54 +12,26 @@
    should fit into a Py_ssize_t.  Also, relax current value of
    MAX_DIGITS for 64-bit systems.
 
-   If Py_DEBUG is defined, initialize newly allocated limbs to random stuff.
-   Or does this already happen automatically?
 */
 
 /*
- * deccoeff.Deccoeff is a class implementing arbitrary-precision
- * unsigned integer arithmetic in a decimal base.  As the name
- * 'deccoeff' suggests, these numbers are intended to be used as the
- * coefficients for Decimal instances.
+ * This file defines a module deccoeff containing two classes:
+ * _Decimal and Deccoeff.
  *
  * deccoeff._Decimal is a skeletal base class for the decimal.Decimal class.
- * As time goes on, the aim is to move more and more code from Python
- * to C.
+ * As time goes on, the aim is to move more and more code from the Python
+ * decimal.py file to the _Decimal class.
+ *
+ * deccoeff.Deccoeff is a class implementing arbitrary-precision unsigned
+ * integer arithmetic in a decimal base.  In addition to the usual arithmetic
+ * operations, Deccoeff instances support slicing and element access for
+ * retrieving individual digits or sequences of digits.
+ *
+ * As the name suggests, Deccoeff instances are intended to be used as the
+ * coefficients for _Decimal instances.
  *
  * Author: Mark Dickinson (dickinsm@gmail.com).
  * Licensed to the PSF under a Contributor Agreement.
- */
-
-/*
- *  To do (or consider)
- *  -----
- *  docstrings!
- *  make it possible to choose LIMB_DIGITS at configure time
- *  make LIMB_DIGITS=8 a possibility, for purposes of experimentation
- *  make exponent a Deccoeff (first requires making Deccoeff signed).
- *    this should offer improvements in parsing and printing of Decimal.  OR:
- *  make exponent a C Py_ssize_t (or long? or int64_t?), for speed.  Would
- *    require some thinking about exponent and coefficient length constraints,
- *    with reference to the specification.
- *  move __str__ from Python to C;  for speed, C version should write
- *    unicode directly, rather than writing bytes and then converting
- *    from bytes to unicode.
- *  expand Deccoeff-specific tests
- *  improve and correct documentation; remove outdated deccoeff.txt; ReST!
- *  fast recursive algorithms for division, base conversion
- *  (fast recursive) square root
- *  implement div_nearest and sqrt_nearest: they're bottlenecks
- *  minor optimization opportunities:
- *  - in Karatsuba, accumulate all additions for middle term without
- *    propagating carry
- *  - make limb_error checks only for debug build
- *  - limbs_lshift and limbs_rshift could be faster when the shift count
- *    is a multiple of LIMB_DIGITS.
- *  - when LIMB_DIGITS == 9, base conversion could be a factor of 2 faster
- *    (asymptotically) by operating on two PyLong_Digits at a time instead of
- *    one.
- *  - in multiplication, should separate out the first step, to avoid
- *    needlessly adding zeros.
  */
 
 #include "Python.h"
