@@ -23,8 +23,6 @@
    Use CLASS_NAME where appropriate in strings
    Add macro for _Decimal class name
 
-   Fill powers of ten table dynamically
-
    Make code less dependent on LIMB_DIGITS: should just need two
    continued fraction approximations (upper and lower) to
    log(2**15)/log(10); scale as appropriate.
@@ -142,26 +140,6 @@ typedef __uint128_t digit_limb_t;
 #define BASEC_Q 22136
 #define BASECI_P 4369
 #define BASECI_Q 1096
-static limb_t powers_of_ten[LIMB_DIGITS] = {
-    1,
-    10,
-    100,
-    1000,
-    10000,
-    100000,
-    1000000,
-    10000000,
-    100000000,
-    1000000000,
-    10000000000,
-    100000000000,
-    1000000000000,
-    10000000000000,
-    100000000000000,
-    1000000000000000,
-    10000000000000000,
-    100000000000000000
-};
 
 #elif (defined(UINT32_MAX) || defined(uint32_t)) &&     \
     (defined(UINT64_MAX) || defined(uint64_t))
@@ -178,17 +156,6 @@ typedef uint64_t digit_limb_t;
 #define BASEC_Q 11068
 #define BASECI_P 4369
 #define BASECI_Q 2192
-static limb_t powers_of_ten[LIMB_DIGITS] = {
-    1,
-    10,
-    100,
-    1000,
-    10000,
-    100000,
-    1000000,
-    10000000,
-    100000000
-};
 
 #else
 
@@ -203,15 +170,10 @@ typedef unsigned long digit_limb_t;
 #define BASEC_Q 1521
 #define BASECI_P 5890
 #define BASECI_Q 6649
-static limb_t powers_of_ten[LIMB_DIGITS] = {
-    1,
-    10,
-    100,
-    1000
-};
 
 #endif
 
+static limb_t powers_of_ten[LIMB_DIGITS];
 #define LIMB_ZERO ((limb_t)0)
 #define LIMB_ONE ((limb_t)1)
 #define LIMB_TWO ((limb_t)2)
@@ -3191,7 +3153,15 @@ PyMODINIT_FUNC
 PyInit_deccoeff(void)
 {
     PyObject *m;
-    int check;
+    int check, i;
+    limb_t power_of_ten;
+
+    /* initialize powers_of_ten array */
+    power_of_ten = 1;
+    for (i = 0; i < LIMB_DIGITS; i++) {
+        powers_of_ten[i] = power_of_ten;
+        power_of_ten *= 10;
+    }
 
     if (PyType_Ready(&deccoeff_DeccoeffType) < 0)
         return NULL;
