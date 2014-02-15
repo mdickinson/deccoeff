@@ -1,3 +1,5 @@
+/* Define macros for NEG and ABSSIZE of a Deccoeff, and use them consistently */
+
 /*
  * 'deccoeff' is a Python extension module that exports two classes:
  * _Decimal and Deccoeff.
@@ -521,22 +523,6 @@ limbs_fastmultiply(limb_t *res, const limb_t *a, Py_ssize_t a_size,
 /* Low-level functions for operating on arrays of limbs.  These functions
    don't take care of memory allocation; they all assume that sufficient space
    is provided for their results. */
-
-/* Rational approximations to log(10)/log(2), used for base conversion:
-   485/146  = 3.321917808219...
-   log2(10) = 3.321928094887...
-   2136/643 = 3.321928460342...
-
-   Note that for correctness of scale_Py_ssize_t, it's required that LOG2_10UP
-   * LOG2_10UQ * LIMB_DIGITS * PyLong_SHIFT and LOG2_10LP * LOG2_10LQ *
-   LIMB_DIGITS * PyLong_SHIFT both fit into a Py_ssize_t.  The values below
-   are okay even if LIMB_DIGITS = 19 and PyLong_SHIFT = 64.
-*/
-
-#define LOG2_10LP 485
-#define LOG2_10LQ 146
-#define LOG2_10UP 2136
-#define LOG2_10UQ 643
 
 /* add n-limb numbers a and b, producing an n-limb result res and a carry */
 
@@ -1278,7 +1264,20 @@ typedef struct {
 #define DECCOEFF_ITEMSIZE sizeof(limb_t)
 #define DECCOEFF_BASICSIZE (offsetof(deccoeff, ob_limbs))
 
+#define ABS(X) ((X) < 0 ? -(X) : (X))
+#define DC_NEG(X) (Py_SIZE(X) < 0)
+#define DC_ABSSIZE(X) (ABS(Py_SIZE(X))
+
 static PyTypeObject deccoeff_DeccoeffType;
+
+/* output contents of a deccoeff, for debugging */
+
+static void
+deccoeff_printf(const char *name, deccoeff *v)
+{
+    limbs_printf(name, v->ob_limbs, ABS(Py_SIZE(v)));
+    printf("Number of limbs: %ld\n", Py_SIZE(v));
+}
 
 /* allocate a new decimal integer with 'size' limbs */
 
@@ -1286,6 +1285,7 @@ static deccoeff *
 _deccoeff_new(Py_ssize_t size)
 {
     /* XXX check for overflow */
+    assert(size >= 0);
     return PyObject_NEW_VAR(deccoeff, &deccoeff_DeccoeffType, size);
 }
 
@@ -1295,10 +1295,10 @@ static deccoeff *
 deccoeff_normalize(deccoeff *v)
 {
     Py_ssize_t v_size;
-    v_size = Py_SIZE(v);
+    v_size = ABS(Py_SIZE(v));
     while (v_size > 0 && !limb_bool(v->ob_limbs[v_size-1]))
         --v_size;
-    Py_SIZE(v) = v_size;
+    Py_SIZE(v) = (Py_SIZE(v) < 0) ? -v_size : v_size;
     return v;
 }
 
@@ -1311,7 +1311,7 @@ deccoeff_checksize(deccoeff *v)
 {
     Py_ssize_t v_size, topdigits;
     bool small;
-    v_size = Py_SIZE(v);
+    v_size = ABS(Py_SIZE(v));
 
     /* something with MAX_DIGITS digits has exactly
        (MAX_DIGITS-1)/LIMB_DIGITS+1 limbs;  its top limb has
@@ -1333,17 +1333,21 @@ deccoeff_checksize(deccoeff *v)
     return NULL;
 }
 
+/* Make a copy of a deccoeff */
+
 static deccoeff *
 _deccoeff_copy(deccoeff *a)
 {
     Py_ssize_t a_size, i;
     deccoeff *z;
 
-    a_size = Py_SIZE(a);
+    a_size = ABS(Py_SIZE(a));
     z = _deccoeff_new(a_size);
-    if (z != NULL)
+    if (z != NULL) {
         for (i=0; i < a_size; i++)
             z->ob_limbs[i] = a->ob_limbs[i];
+        Py_SIZE(z) = Py_SIZE(a);
+    }
     return z;
 }
 
@@ -1367,11 +1371,22 @@ deccoeff_one(void)
     return z;
 }
 
+/* convert an array of unicode characters into a Deccoeff instance.
+   May raise OverflowError if the character array is too long, or
+   ValueError if the array is invalid. */
+
 static deccoeff *
 _deccoeff_from_unicode_and_size(const Py_UNICODE *s, Py_ssize_t s_len) {
     Py_ssize_t z_size;
     deccoeff *z;
     bool invalid;
+    int negative;
+
+    negative = (*s == '-') ? 1 : 0;
+    if (*s == '-' || *s == '+') {
+        s_len--;
+        s++;
+    }
 
     if (s_len > MAX_DIGITS) {
         PyErr_SetString(PyExc_OverflowError,
@@ -1383,6 +1398,8 @@ _deccoeff_from_unicode_and_size(const Py_UNICODE *s, Py_ssize_t s_len) {
     z = _deccoeff_new(z_size);
     if (z == NULL)
         return NULL;
+    if (negative == 1)
+        Py_SIZE(z) = -z_size;
 
     invalid = limbs_from_unicode(z->ob_limbs, s, s_len);
     if (invalid) {
@@ -1391,8 +1408,14 @@ _deccoeff_from_unicode_and_size(const Py_UNICODE *s, Py_ssize_t s_len) {
                         "nondigit character in input");
         return NULL;
     }
+
     return deccoeff_normalize(z);
 }
+
+/* Variant of the above that converts an array of unicode digits containing a
+   decimal point at position int_len (but no sign).  The decimal point is
+   simply ignored.  This is used to parse the coefficient of a Decimal
+   instance. */
 
 static deccoeff *
 _deccoeff_from_pointed_unicode_and_size(const Py_UNICODE *s, Py_ssize_t s_len,
@@ -1416,17 +1439,114 @@ _deccoeff_from_pointed_unicode_and_size(const Py_UNICODE *s, Py_ssize_t s_len,
 }
 
 
+/***********************************
+ * Deccoeff <-> PyLong conversions *
+ ***********************************/
+
+/* Rational approximations to log2(10):
+
+   LOG2_10LP/LOG2_10LQ is a lower bound for log2(10);
+   LOG2_10UP/LOG2_10UQ is an upper bound.
+
+      485/146  = 3.321917808219...
+      log2(10) = 3.321928094887...
+      2136/643 = 3.321928460342...
+
+   For correctness of scale_Py_ssize_t, it's required that LOG2_10UP *
+   LOG2_10UQ * LIMB_DIGITS * PyLong_SHIFT and LOG2_10LP * LOG2_10LQ *
+   LIMB_DIGITS * PyLong_SHIFT both fit into a Py_ssize_t.  The values below
+   are okay even if we're using 64-bit types to hold limbs and digits: in that
+   case, LIMB_DIGITS <= 19 and PyLong_SHIFT <= 64.
+*/
+
+#define LOG2_10LP 485
+#define LOG2_10LQ 146
+#define LOG2_10UP 2136
+#define LOG2_10UQ 643
+
+/* Compute ceiling(n*p/q) without intermediate overflow.  If the result
+   would be larger than PY_SSIZE_T_MAX, return -1.  Assumes that
+   n is nonnegative, and that (q-1)*(p+1) <= PY_SSIZE_T_MAX. */
+
+static Py_ssize_t
+scale_Py_ssize_t(Py_ssize_t n, int p, int q) {
+    Py_ssize_t hi, low;
+    assert (n >= 0);
+    hi = n/q;
+    if (hi > PY_SSIZE_T_MAX/p)
+        return -1;
+    hi *= p;
+    low = (n%q*p+q-1)/q;
+    if (hi > PY_SSIZE_T_MAX-low)
+        return -1;
+    return hi+low;
+}
+
+/* Create a Deccoeff from a Python integer. */
+
+static deccoeff *
+deccoeff_from_PyLong(PyLongObject *a)
+{
+    Py_ssize_t a_size, z_size;
+    deccoeff *z;
+    int negative;
+
+    a_size = ABS(Py_SIZE(a));
+    negative = Py_SIZE(a) < 0 ? 1 : 0;
+    z_size = scale_Py_ssize_t(a_size,
+                              LOG2_10LQ * PyLong_SHIFT,
+                              LOG2_10LP * LIMB_DIGITS);
+    if (z_size == -1)
+        PyErr_SetString(PyExc_OverflowError,
+                        "Overflow in int to " CLASS_NAME " conversion\n");
+    z = _deccoeff_new(z_size);
+    if (z==NULL)
+        return NULL;
+    Py_SIZE(z) = limbs_from_longdigits(z->ob_limbs, a->ob_digit, a_size);
+    if (negative)
+        Py_SIZE(z) = -Py_SIZE(z);
+
+    return deccoeff_checksize(z);
+}
+
+/* Convert a Python integer to a Deccoeff */
+
+static PyLongObject *
+deccoeff_long(deccoeff *a)
+{
+    Py_ssize_t a_size, z_size;
+    PyLongObject *z;
+    int negative;
+
+    a_size = ABS(Py_SIZE(a));
+    negative = Py_SIZE(a) < 0 ? 1 : 0;
+    z_size = scale_Py_ssize_t(a_size,
+                              LOG2_10UP * LIMB_DIGITS,
+                              LOG2_10UQ * PyLong_SHIFT);
+    if (z_size == -1)
+        PyErr_SetString(PyExc_OverflowError,
+                        "Overflow in " CLASS_NAME " to int conversion\n");
+    z = _PyLong_New(z_size);
+    if (z == NULL)
+        return NULL;
+    Py_SIZE(z) = limbs_to_longdigits(z->ob_digit, a->ob_limbs, a_size);
+    if (negative)
+        Py_SIZE(z) = -Py_SIZE(z);
+
+    return z;
+}
+
 
 /***************************
  * Arithmetic on deccoeffs *
  ***************************/
 
-/* General rules: if the result of any arithmetic operation falls
-   outside the range [0, 10**MAX_DIGITS) then OverflowError is raised.
+/* General rules: if the result of any arithmetic operation falls outside the
+   range (-10**MAX_DIGITS, 10**MAX_DIGITS) then OverflowError is raised.
    Results are always normalized. */
 
-/* determine whether another Python object is compatible with deccoeff, in the
-   sense that it can be used in mixed-type arithmetic with deccoeff */
+/* determine whether another Python object can be used in mixed-type arithmetic
+   with deccoeff */
 
 static bool
 compatible_with_deccoeff(PyObject *v)
@@ -1434,11 +1554,7 @@ compatible_with_deccoeff(PyObject *v)
     return (v->ob_type == &deccoeff_DeccoeffType || PyIndex_Check(v));
 }
 
-/* convert an arbitrary PyObject to a deccoeff.  If conversion is implemented
-   for this type, return false and put the result of the attempted conversion
-   (which may be NULL on failure) in *z.   Otherwise, return true. */
-
-static deccoeff *deccoeff_from_PyLong(PyLongObject *a);
+/* convert an arbitrary PyObject to a Deccoeff.  Returns a new reference. */
 
 static deccoeff *
 convert_to_deccoeff(PyObject *v)
@@ -1465,28 +1581,31 @@ convert_to_deccoeff(PyObject *v)
     }
 }
 
+/* wrap a binary operation on deccoeffs to give a binary
+   operation on PyObjects */
+
 #define DECCOEFF_WRAP_BINOP(PO_func, DC_func)                        \
     static PyObject *                                                \
     PO_func(PyObject *v, PyObject *w)                                \
     {                                                                \
-        deccoeff *a, *b;                                        \
-        PyObject *z = NULL;                                        \
-        if (!compatible_with_deccoeff(v)) {                        \
-            Py_INCREF(Py_NotImplemented);                        \
-            z = Py_NotImplemented;                                \
-        }                                                        \
-        else if ((a = convert_to_deccoeff(v)) != NULL) {        \
-            if (!compatible_with_deccoeff(w)) {                 \
-                Py_INCREF(Py_NotImplemented);                   \
-                z = Py_NotImplemented;                          \
-            }                                                   \
-            else if ((b = convert_to_deccoeff(w)) != NULL) {        \
-                z = (PyObject *)(DC_func(a, b));                \
-                Py_DECREF(b);                                   \
-            }                                                   \
-            Py_DECREF(a);                                        \
-        }                                                        \
-        return z;                                                \
+        deccoeff *a, *b;                                             \
+        PyObject *z = NULL;                                          \
+        if (!compatible_with_deccoeff(v)) {                          \
+            Py_INCREF(Py_NotImplemented);                            \
+            z = Py_NotImplemented;                                   \
+        }                                                            \
+        else if ((a = convert_to_deccoeff(v)) != NULL) {             \
+            if (!compatible_with_deccoeff(w)) {                      \
+                Py_INCREF(Py_NotImplemented);                        \
+                z = Py_NotImplemented;                               \
+            }                                                        \
+            else if ((b = convert_to_deccoeff(w)) != NULL) {         \
+                z = (PyObject *)(DC_func(a, b));                     \
+                Py_DECREF(b);                                        \
+            }                                                        \
+            Py_DECREF(a);                                            \
+        }                                                            \
+        return z;                                                    \
     }
 
 /* addition */
@@ -1496,23 +1615,62 @@ _deccoeff_add(deccoeff *a, deccoeff *b)
 {
     Py_ssize_t a_size, b_size;
     deccoeff *z;
-    bool carry;
-    a_size = Py_SIZE(a);
-    b_size = Py_SIZE(b);
-    if (a_size < b_size) {
-        deccoeff *temp;
-        Py_ssize_t temp_size;
-        temp = a; a = b; b = temp;
-        temp_size = a_size; a_size = b_size; b_size = temp_size;
+    bool carry, a_neg, b_neg;
+    a_size = ABS(Py_SIZE(a));
+    a_neg = DC_NEG(a);
+    b_size = ABS(Py_SIZE(b));
+    b_neg = DC_NEG(b);
+
+    if (a_neg == b_neg) {
+        if (a_size < b_size) {
+            deccoeff *temp;
+            Py_ssize_t temp_size;
+            temp = a; a = b; b = temp;
+            temp_size = a_size; a_size = b_size; b_size = temp_size;
+        }
+        z = _deccoeff_new(a_size+1);
+        if (z == NULL)
+            return z;
+        if (a_neg)
+            Py_SIZE(z) = -Py_SIZE(z);
+        carry = limbs_add(z->ob_limbs, a->ob_limbs, b->ob_limbs, b_size);
+        carry = limbs_incc(z->ob_limbs+b_size, a->ob_limbs+b_size,
+                           a_size-b_size, carry);
+        z->ob_limbs[a_size] = carry ? LIMB_ONE : LIMB_ZERO;
+        return deccoeff_checksize(deccoeff_normalize(z));
     }
-    z = _deccoeff_new(a_size+1);
-    if (z == NULL)
-        return z;
-    carry = limbs_add(z->ob_limbs, a->ob_limbs, b->ob_limbs, b_size);
-    carry = limbs_incc(z->ob_limbs+b_size, a->ob_limbs+b_size,
-                       a_size-b_size, carry);
-    z->ob_limbs[a_size] = carry ? LIMB_ONE : LIMB_ZERO;
-    return deccoeff_checksize(deccoeff_normalize(z));
+
+    if (a_size < b_size) {
+        z = _deccoeff_new(b_size);
+        if (z == NULL)
+            return z;
+        if (b_neg)
+            Py_SIZE(z) = -Py_SIZE(z);
+        carry = limbs_sub(z->ob_limbs, b->ob_limbs, a->ob_limbs, a_size);
+        carry = limbs_decc(z->ob_limbs+a_size, b->ob_limbs+a_size,
+                           b_size-a_size, carry);
+        assert(!carry);
+    }
+    else if (a_size > b_size) {
+        z = _deccoeff_new(a_size);
+        if (z == NULL)
+            return z;
+        if (a_neg)
+            Py_SIZE(z) = -Py_SIZE(z);
+        carry = limbs_sub(z->ob_limbs, a->ob_limbs, b->ob_limbs, b_size);
+        carry = limbs_decc(z->ob_limbs+b_size, a->ob_limbs+b_size,
+                           a_size-b_size, carry);
+        assert(!carry);
+    }
+    else { /* a_size == b_size */
+        z = _deccoeff_new(a_size);
+        if (z == NULL)
+            return z;
+        carry = limbs_diff(z->ob_limbs, a->ob_limbs, b->ob_limbs, a_size);
+        if (a_neg ^ carry)
+            Py_SIZE(z) = -Py_SIZE(z);
+    }
+    return deccoeff_normalize(z);
 }
 
 /* subtraction */
@@ -1522,23 +1680,63 @@ _deccoeff_subtract(deccoeff *a, deccoeff *b)
 {
     Py_ssize_t a_size, b_size;
     deccoeff *z;
-    bool carry;
-    a_size = Py_SIZE(a);
-    b_size = Py_SIZE(b);
-    if (a_size < b_size)
-        goto Overflow;
-    z = _deccoeff_new(a_size);
-    if (z==NULL)
-        return NULL;
-    carry = limbs_sub(z->ob_limbs, a->ob_limbs, b->ob_limbs, b_size);
-    carry = limbs_decc(z->ob_limbs+b_size, a->ob_limbs+b_size,
-                       a_size-b_size, carry);
-    if (!carry)
-        return deccoeff_normalize(z);
-    Py_DECREF(z);
-  Overflow:
-    PyErr_SetString(PyExc_OverflowError, "difference is negative");
-    return NULL;
+    bool carry, a_neg, b_neg;
+    a_size = ABS(Py_SIZE(a));
+    a_neg = DC_NEG(a);
+    b_size = ABS(Py_SIZE(b));
+    b_neg = DC_NEG(b);
+
+    if (a_neg != b_neg) {
+        if (a_size < b_size) {
+            deccoeff *temp;
+            Py_ssize_t temp_size;
+            temp = a; a = b; b = temp;
+            temp_size = a_size; a_size = b_size; b_size = temp_size;
+        }
+        z = _deccoeff_new(a_size+1);
+        if (z == NULL)
+            return z;
+        if (a_neg)
+            Py_SIZE(z) = -Py_SIZE(z);
+        carry = limbs_add(z->ob_limbs, a->ob_limbs, b->ob_limbs, b_size);
+        carry = limbs_incc(z->ob_limbs+b_size, a->ob_limbs+b_size,
+                           a_size-b_size, carry);
+        z->ob_limbs[a_size] = carry ? LIMB_ONE : LIMB_ZERO;
+        return deccoeff_checksize(deccoeff_normalize(z));
+    }
+
+    if (a_size < b_size) {
+        z = _deccoeff_new(b_size);
+        if (z == NULL)
+            return z;
+        if (!b_neg)
+            Py_SIZE(z) = -Py_SIZE(z);
+        carry = limbs_sub(z->ob_limbs, b->ob_limbs, a->ob_limbs, a_size);
+        carry = limbs_decc(z->ob_limbs+a_size, b->ob_limbs+a_size,
+                           b_size-a_size, carry);
+        assert(!carry);
+    }
+    else if (a_size > b_size) {
+        z = _deccoeff_new(a_size);
+        if (z == NULL)
+            return z;
+        if (a_neg)
+            Py_SIZE(z) = -Py_SIZE(z);
+        carry = limbs_sub(z->ob_limbs, a->ob_limbs, b->ob_limbs, b_size);
+        carry = limbs_decc(z->ob_limbs+b_size, a->ob_limbs+b_size,
+                           a_size-b_size, carry);
+        assert(!carry);
+    }
+    else { /* a_size == b_size */
+        z = _deccoeff_new(a_size);
+        if (z == NULL)
+            return z;
+        carry = limbs_diff(z->ob_limbs, a->ob_limbs, b->ob_limbs, a_size);
+        /* a*b >= 0  =>  a - b = SIGN(a) * (ABS(a) - ABS(b)) */
+        if (a_neg ^ carry)
+            Py_SIZE(z) = -Py_SIZE(z);
+    }
+    return deccoeff_normalize(z);
 }
 
 /* multiplication */
@@ -1549,14 +1747,16 @@ _deccoeff_multiply(deccoeff *a, deccoeff *b)
     Py_ssize_t a_size, b_size, w_size;
     deccoeff *z, *w;
 
-    a_size = Py_SIZE(a);
-    b_size = Py_SIZE(b);
+    a_size = ABS(Py_SIZE(a));
+    b_size = ABS(Py_SIZE(b));
     if (a_size == 0 || b_size == 0)
         return deccoeff_zero();
 
     z = _deccoeff_new(a_size + b_size);
     if (z == NULL)
         return NULL;
+    if (DC_NEG(a) ^ DC_NEG(b))
+        Py_SIZE(z) = -Py_SIZE(z);
 
     /* try out Karatsuba multiplication */
 
@@ -1586,12 +1786,26 @@ _deccoeff_multiply(deccoeff *a, deccoeff *b)
                        w->ob_limbs, w_size);
 
     Py_DECREF(w);
+
     return deccoeff_checksize(deccoeff_normalize(z));
 }
 
 /* division of a by b: returns quotient and puts remainder in *r.  On
    failure, both the quotient and the remainder are NULL.  Raises
    ZeroDivisionError on division by zero. */
+
+/* transformation formulas for negative arguments: for any a and b,
+
+     a // b == (-a) // (-b)
+     a % b == -((-a) % (-b))
+
+   and for b positive, any a:
+
+     a // b = ~((~a) // b)
+     a % b = b + ~((~a) % b)
+
+   where ~x is -1-x.
+*/
 
 static deccoeff *
 _deccoeff_division(deccoeff **r, deccoeff *a, deccoeff *b) {
@@ -2105,71 +2319,6 @@ deccoeff_richcompare(PyObject *v, PyObject *w, int op)
     return z;
 }
 
-/* Compute ceiling(n*p/q) without intermediate overflow.  If the result
-   would be larger than PY_SSIZE_T_MAX, return -1.  Assumes that
-   n is nonnegative, and that (q-1)*(p+1) <= PY_SSIZE_T_MAX. */
-
-static Py_ssize_t
-scale_Py_ssize_t(Py_ssize_t n, int p, int q) {
-    Py_ssize_t hi, low;
-    assert (n >= 0);
-    hi = n/q;
-    if (hi > PY_SSIZE_T_MAX/p)
-        return -1;
-    hi *= p;
-    low = (n%q*p+q-1)/q;
-    if (hi > PY_SSIZE_T_MAX-low)
-        return -1;
-    return hi+low;
-}
-
-/* Create a deccoeff from a Python integer. */
-
-static deccoeff *
-deccoeff_from_PyLong(PyLongObject *a)
-{
-    Py_ssize_t a_size, z_size;
-    deccoeff *z;
-
-    a_size = Py_SIZE(a);
-    if (a_size < 0) {
-        PyErr_SetString(PyExc_OverflowError,
-                        "Can't convert negative integer to " CLASS_NAME);
-        return NULL;
-    }
-    z_size = scale_Py_ssize_t(a_size,
-                              LOG2_10LQ * PyLong_SHIFT,
-                              LOG2_10LP * LIMB_DIGITS);
-    if (z_size == -1)
-        PyErr_SetString(PyExc_OverflowError,
-                        "Overflow in int to " CLASS_NAME " conversion\n");
-    z = _deccoeff_new(z_size);
-    if (z==NULL)
-        return NULL;
-    Py_SIZE(z) = limbs_from_longdigits(z->ob_limbs, a->ob_digit, a_size);
-    return deccoeff_checksize(z);
-}
-
-static PyLongObject *
-deccoeff_long(deccoeff *a)
-{
-    Py_ssize_t a_size, z_size;
-    PyLongObject *z;
-
-    a_size = Py_SIZE(a);
-    z_size = scale_Py_ssize_t(a_size,
-                              LOG2_10UP * LIMB_DIGITS,
-                              LOG2_10UQ * PyLong_SHIFT);
-    if (z_size == -1)
-        PyErr_SetString(PyExc_OverflowError,
-                        "Overflow in " CLASS_NAME " to int conversion\n");
-    z = _PyLong_New(z_size);
-    if (z == NULL)
-        return NULL;
-    Py_SIZE(z) = limbs_to_longdigits(z->ob_digit, a->ob_limbs, a_size);
-    return z;
-}
-
 static PyObject *
 deccoeff_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
@@ -2220,7 +2369,7 @@ static Py_ssize_t
 _deccoeff_length(deccoeff *v)
 {
     Py_ssize_t v_size;
-    v_size = Py_SIZE(v);
+    v_size = ABS(Py_SIZE(v));
     if (v_size == 0)
         return 0;
     return limb_len(v->ob_limbs[v_size-1]) + (v_size-1) * LIMB_DIGITS;
@@ -2315,7 +2464,7 @@ static PyNumberMethods deccoeff_as_number = {
     0, /*nb_xor*/
     0, /*nb_or*/
     (unaryfunc) deccoeff_long,              /*nb_int*/
-    (unaryfunc) deccoeff_long,              /*nb_long*/
+    0, /*nb_long*/
     0, /*nb_float*/
     0, /*nb_inplace_add*/
     0, /*nb_inplace_subtract*/
@@ -2334,18 +2483,17 @@ static PyNumberMethods deccoeff_as_number = {
     (unaryfunc) deccoeff_long,              /*nb_index*/
 };
 
+/* str(deccoeff) */
+
 static PyObject *
 deccoeff_str(deccoeff *v)
 {
-    Py_ssize_t sz, nlimbs;
-    limb_t *limb_pointer, *last_limb, limb_value;
+    Py_ssize_t size, nlimbs;
     PyObject *str;
-    int i;
     Py_UNICODE *p;
 
-    nlimbs = Py_SIZE(v);
+    nlimbs = ABS(Py_SIZE(v));
     if (nlimbs == 0) {
-        /* return empty string */
         str = PyUnicode_FromUnicode(NULL, 1);
         if (str == NULL)
             return NULL;
@@ -2354,34 +2502,26 @@ deccoeff_str(deccoeff *v)
         *--p = '0';
         return str;
     }
+    size = Py_SIZE(v) < 0 ? 1 : 0;
+    size += _deccoeff_length(v);
 
-    sz = _deccoeff_length(v);
-
-    str = PyUnicode_FromUnicode(NULL, sz);
+    assert(size >= 0);
+    str = PyUnicode_FromUnicode(NULL, size);
     if (str == NULL)
         return NULL;
-    p = PyUnicode_AS_UNICODE(str) + sz;
-    *p = '\0';
+    p = PyUnicode_AS_UNICODE(str);
 
-    /* fill in digits from right to left;  start with the least
-       significant limb_t */
-    limb_pointer = v -> ob_limbs;
-    last_limb = limb_pointer + nlimbs - 1;
-    while (limb_pointer < last_limb) {
-        limb_value = *limb_pointer++;
-        for (i=0; i < LIMB_DIGITS; i++)
-            *--p = limb_to_wdigit(
-                limb_rshift(&limb_value,
-                            limb_value, 1, LIMB_ZERO));
+    if (Py_SIZE(v) < 0) {
+        *p++ = '-';
+        size--;
     }
-    /* most significant limb_t */
-    limb_value = *limb_pointer;
-    assert(limb_bool(limb_value));
-    while (limb_bool(limb_value))
-        *--p = limb_to_wdigit(
-            limb_rshift(&limb_value, limb_value, 1, LIMB_ZERO));
+
+    limbs_as_unicode(p, size, v->ob_limbs);
+    *(p+size) = '\0';
     return str;
 }
+
+/* repr(Deccoeff) looks like "Deccoeff('-123')" */
 
 static PyObject *
 deccoeff_repr(deccoeff *v)

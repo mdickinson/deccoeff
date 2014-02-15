@@ -25,9 +25,7 @@ class DecccoeffTest(unittest.TestCase):
         """Check that Deccoeff and Python integers give the same
         result for the given arithmetic operation."""
 
-        if op is sub and a < b:
-            self.assertRaises(OverflowError, op, D(a), D(b))
-        elif op in (floordiv, mod) and b == 0:
+        if op in (floordiv, mod) and b == 0:
             self.assertRaises(ZeroDivisionError, op, D(a), D(b))
         else:
             int_result = D(op(a, b))
@@ -82,11 +80,8 @@ class DecccoeffTest(unittest.TestCase):
         self.assertEqual(D(123) + 47, D(123+47))
         self.assertEqual(True * D(123), D(True * 123))
         self.assertEqual(MyInteger(12345) % D(123), D(12345 % 123))
-
-        # but an attempt to convert a negative integer type
-        # should cause an error, even if the operation result is nonnegative
-        self.assertRaises(OverflowError, add, D(47), -12)
-        self.assertRaises(OverflowError, add, -12, D(47))
+        self.assertEqual(D(47) + (-12), D(47 + (-12)))
+        self.assertEqual((-12) + D(47), D((-12) + 47))
 
 def test_main():
     run_unittest(DecccoeffTest)
