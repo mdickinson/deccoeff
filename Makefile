@@ -1,4 +1,5 @@
-PYTHON = ../py3k/python.exe
+# Replace this with something that points to your local Python 3 installation.
+PYTHON = python3
 
 all: deccoeff.so
 module:
