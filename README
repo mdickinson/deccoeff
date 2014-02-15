@@ -1,3 +1,9 @@
+This is a resurrected version of a Darcs repository that predated the
+introduction of the decimal-in-c type in Python 3.3.  It's really of
+no more than historical interest.
+
+------
+
 Deccoeff is an extension type for Python 3.0 that implements
 nonnegative decimal integers.  These integers can be used in
 arithmetic in the usual way and also treated as strings of decimal
@@ -20,7 +26,7 @@ executable.
 
 (2) ./configure && make
 
-(3) make install
+(3) make install  (or possibly "sudo make install", depending on your setup)
 
 To use a 64-bit limb on 64-bit platforms, you'll probably need to set
 CFLAGS or CPPFLAGS when running configure.  For example, on my Core 2
