@@ -2048,21 +2048,60 @@ deccoeff_richcompare(PyObject *v, PyObject *w, int op)
 {
     deccoeff *a, *b;
     PyObject *z = NULL;
+    int cmp, ok;
+
     if (!compatible_with_deccoeff(v)) {
-        Py_INCREF(Py_NotImplemented);
         z = Py_NotImplemented;
+        Py_INCREF(z);
+        return z;
     }
-    else if ((a = convert_to_deccoeff(v)) != NULL) {
-        if (!compatible_with_deccoeff(w)) {
-            Py_INCREF(Py_NotImplemented);
-            z = Py_NotImplemented;
-        }
-        else if ((b = convert_to_deccoeff(w)) != NULL) {
-            z = Py_CmpToRich(op, _deccoeff_compare(a, b));
-            Py_DECREF(b);
-        }
+    a = convert_to_deccoeff(v);
+    if (a == NULL) {
+        return NULL;
+    }
+
+    if (!compatible_with_deccoeff(w)) {
         Py_DECREF(a);
+        z = Py_NotImplemented;
+        Py_INCREF(z);
+        return z;
     }
+    b = convert_to_deccoeff(w);
+    if (b == NULL) {
+        Py_DECREF(a);
+        return NULL;
+    }
+
+    cmp = _deccoeff_compare(a, b);
+    Py_DECREF(a);
+    Py_DECREF(b);
+
+    switch (op) {
+    case Py_LT:
+        ok = cmp < 0;
+        break;
+    case Py_LE:
+        ok = cmp <= 0;
+        break;
+    case Py_EQ:
+        ok = cmp == 0;
+        break;
+    case Py_NE:
+        ok = cmp != 0;
+        break;
+    case Py_GE:
+        ok = cmp >= 0;
+        break;
+    case Py_GT:
+        ok = cmp > 0;
+        break;
+    default:
+        PyErr_BadArgument();
+        return NULL;
+    }
+
+    z = ok ? Py_True : Py_False;
+    Py_INCREF(z);
     return z;
 }
 
